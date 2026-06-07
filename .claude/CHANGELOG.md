@@ -10,3 +10,8 @@
 
 ## 2026-06-07 — PRD written (saved locally)
 - Created `docs/superpowers/prds/2026-06-07-crucible.md` via /to-prd: problem/solution, 31 user stories, implementation + testing decisions (confirmed seams: ModelFn + run_loop callbacks + real sandbox), out-of-scope, notes. Marked ready-for-agent. No tracker configured, so saved locally instead of publishing an issue.
+
+## 2026-06-07 — Published to GitHub
+- Connected remote Aankirz/Crucible; rebased planning docs onto the LICENSE base.
+- Merged design baseline (spec + plan + PRD) to `main` via PR #1.
+- Created `ready-for-agent` label; published the PRD as issue #2 with that label.
