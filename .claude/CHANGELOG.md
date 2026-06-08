@@ -69,3 +69,10 @@
 - Runtime scripts: spike_adk_phoenix_mcp.py (live wiring), run_loop_cli.py (real e2e), run_prebaked.py (2-DB generality), data/README.md.
 - offline_demo.py: runs the REAL orchestrator loop on a real temp SQLite DB with a scripted model — climbs 50%→100% (3 accepted mutations) credential-free.
 - Packaging: added [build-system] (hatchling) so `crucible` installs as a package; bare `uv run`/uvicorn imports now work without PYTHONPATH. Full suite 35/35 green.
+
+## 2026-06-09 — Live Gemini wired + hardened (free-tier quota hit)
+- Captured GOOGLE_API_KEY into .env (gitignored). Confirmed models.py works against LIVE Gemini 3 (real SQL generated).
+- Fixed invalid default model id (gemini-3-pro -> gemini-3-flash-preview; pro needs billing, free limit 0).
+- Hardened gemini adapter: retry/backoff on 429 (parse retryDelay / 'retry in Xs') and 503 (overloaded).
+- Added scripts/live_gemini_demo.py: real loop on a real bundled SQLite "world" DB driven by live Gemini (Phoenix stubbed).
+- BLOCKER: Gemini free tier caps the project at ~20 requests/day; a full climbing run needs ~30-40 calls -> needs billing or a budgeted tiny run. Offline demo remains the mechanical climb proof (50%->100%).
