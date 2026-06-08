@@ -4,13 +4,13 @@ version = "0.1.0"
 description = "An agent that builds and self-optimizes text-to-SQL agents via its own Phoenix traces."
 requires-python = ">=3.11,<3.13"
 dependencies = [
-  # NOTE (verify): pin these to the versions used by github.com/Arize-ai/gemini-hackathon
-  # if resolution fails. Team B owns confirming the ADK / Phoenix / OpenInference versions.
-  "google-adk>=0.3.0",
-  "google-genai>=1.0.0",
-  "arize-phoenix-client>=1.0.0",
-  "arize-phoenix-otel>=0.6.0",
-  "openinference-instrumentation-google-adk>=0.1.0",
+  # Versions doc-verified 2026-06-08 against current PyPI/SDK docs (parallel-agent pass).
+  "google-adk>=2.2.0,<3.0.0",
+  "google-genai>=2.0.0,<3.0.0",
+  "arize-phoenix-client>=2.7.0",
+  "arize-phoenix-otel>=0.13.0",
+  "openinference-instrumentation-google-adk>=0.1.15,<0.2.0",
+  "mcp>=1.0.0",  # StdioServerParameters used by mcp_introspect (ADK 2.x MCP toolset)
   "fastapi>=0.110.0",
   "sse-starlette>=2.0.0",
   "uvicorn>=0.29.0",

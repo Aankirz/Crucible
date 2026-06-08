@@ -24,3 +24,18 @@
 
 ## 2026-06-08 — [Team B] mutation engine (5.1 + 5.2)
 - Added `src/crucible/mutation.py`: failure classification (fixed taxonomy), top-cluster pick, model-driven mutation proposal, and immutable hypothesis application. TDD, 6/6 tests green.
+
+## 2026-06-08 — Gemini model adapter
+- Added `src/crucible/models.py`: `gemini_model(model_name=None) -> ModelFn`, the production Gemini adapter backed by the `google-genai` SDK. Reads `GOOGLE_API_KEY`, resolves model from arg/`GEMINI_MODEL`/default `gemini-3-pro`, returns a closure that calls Gemini at temperature 0.0 for deterministic scoring. API shape verified against the current google-genai SDK README (v2.x).
+
+## 2026-06-08 — Add phoenix_client.py
+- Created src/crucible/phoenix_client.py: thin Arize Phoenix plumbing for OTel tracing registration (init_tracing), logging a scored EvalResult as a Phoenix experiment (log_experiment), and promoting a winning prompt to the prompt registry (promote_prompt). API verified against arize-phoenix-otel 0.13.0 / arize-phoenix-client 2.7.0 docs.
+
+## 2026-06-08 — Agent-initiated MCP introspection layer
+- Created `src/crucible/mcp_introspect.py` implementing `introspect_failures(experiment_name: str) -> str`: builds a Google ADK (Gemini) agent with the Arize Phoenix MCP server (`@arizeai/phoenix-mcp@latest` via npx, stdio) attached as a tool, runs a one-shot instruction to read the named experiment's failing rows and report the dominant failure pattern + current execution_match score, returns the agent's text (or `""` on any error for deterministic fallback).
+- Verified the ADK API against google-adk 2.2.0 docs (adk.dev) + source: `McpToolset`/`StdioConnectionParams` from `google.adk.tools.mcp_tool`, `StdioServerParameters` from `mcp`, keyword-only `Runner.run_async`. Phoenix MCP launch args confirmed from Arize-ai/gemini-hackathon `.gemini/settings.json`. Documented Gemini-CLI fallback inline.
+
+## 2026-06-08 — [Team B] integration lane pinned + validated
+- Parallel-agent pass built phoenix_client.py, mcp_introspect.py, models.py (above).
+- Pinned doc-verified deps in pyproject.toml: google-adk>=2.2.0, google-genai>=2.0.0, arize-phoenix-client>=2.7.0, arize-phoenix-otel>=0.13.0, openinference-instrumentation-google-adk>=0.1.15, mcp>=1.0.0.
+- `uv sync` resolves+installs cleanly; all three modules import against the real SDKs; mutation suite still 6/6 green. Committed uv.lock for reproducible team installs. Runtime verification of phoenix/mcp/genai still pending the credentialed spike.
