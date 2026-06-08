@@ -12,26 +12,31 @@ API shape verified against the current google-genai SDK README
                config=types.GenerateContentConfig(temperature=0.0))`
   - text:    `response.text` (may be None when there are no candidates/parts)
 
-Unconfirmed without a live key (verify at e2e):
-  - The default model name "gemini-3-pro" is taken from the task spec; confirm it
-    is a valid, available model id for the target API tier (README examples use
-    gemini-2.5-flash / gemini-3.x ids). Override via `model_name` arg or the
-    `GEMINI_MODEL` env var if the call rejects it.
-  - Exact behavior of `response.text` when the response is blocked by safety
-    filters (we coalesce any falsy value to "").
+Confirmed live (2026-06-09): `gemini-3-flash-preview` works on the free tier and
+returns SQL; the pro models return 429 with free-tier limit 0 (need billing). The
+adapter retries 429s with backoff so the multi-call loop survives throttling.
 """
 from __future__ import annotations
 
 import os
+import re
+import time
 
 from google import genai
 from google.genai import types
+from google.genai import errors as genai_errors
 
 from crucible.types import ModelFn
 
-DEFAULT_MODEL = "gemini-3-pro"
+# Free-tier default: a real, available Gemini 3 model id. The pro models require
+# billing (free-tier limit is 0), so flash is the safe default for the loop.
+DEFAULT_MODEL = "gemini-3-flash-preview"
 # Temperature 0 -> greedy decoding for deterministic, reproducible scoring.
 SCORING_TEMPERATURE = 0.0
+# The loop makes many calls; free tiers throttle. Retry 429s with backoff so a
+# rate limit pauses the run instead of crashing it.
+MAX_RETRIES = 5
+DEFAULT_BACKOFF_S = 8.0
 
 
 def gemini_model(model_name: str | None = None) -> ModelFn:
@@ -63,12 +68,31 @@ def gemini_model(model_name: str | None = None) -> ModelFn:
     config = types.GenerateContentConfig(temperature=SCORING_TEMPERATURE)
 
     def call(prompt: str) -> str:
-        """Send `prompt` to Gemini and return the raw response text."""
-        response = client.models.generate_content(
-            model=resolved_model,
-            contents=prompt,
-            config=config,
-        )
-        return response.text or ""
+        """Send `prompt` to Gemini and return the raw response text.
+
+        Retries on 429 (rate limit), honoring the server's suggested retry delay
+        when present, so a throttled free tier pauses rather than crashes the loop.
+        """
+        for attempt in range(MAX_RETRIES):
+            try:
+                response = client.models.generate_content(
+                    model=resolved_model,
+                    contents=prompt,
+                    config=config,
+                )
+                return response.text or ""
+            except genai_errors.ClientError as e:
+                if getattr(e, "code", None) != 429 or attempt == MAX_RETRIES - 1:
+                    raise
+                time.sleep(_retry_delay_seconds(e, attempt))
+        return ""
 
     return call
+
+
+def _retry_delay_seconds(error: Exception, attempt: int) -> float:
+    """Backoff for a 429: prefer the server's suggested 'retryDelay', else exponential."""
+    match = re.search(r"ret[dD]elay['\"]?:\s*['\"]?(\d+(?:\.\d+)?)", str(error))
+    if match:
+        return float(match.group(1)) + 1.0
+    return DEFAULT_BACKOFF_S * (2 ** attempt)
