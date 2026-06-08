@@ -21,3 +21,6 @@
 - Added `docs/superpowers/COORDINATION.md` (gates + disjoint file ownership + merge protocol).
 - Added per-team session plans with explicit STOP/coordinate markers: `SESSION-TEAM-A.md` (eval substrate, credential-free) and `SESSION-TEAM-B.md` (brain + integration).
 - Added `MASTER-PROJECT-PLAN.md` as the private PM command center — git-ignored (added to .gitignore).
+
+## 2026-06-08 — [Team B] mutation engine (5.1 + 5.2)
+- Added `src/crucible/mutation.py`: failure classification (fixed taxonomy), top-cluster pick, model-driven mutation proposal, and immutable hypothesis application. TDD, 6/6 tests green.
