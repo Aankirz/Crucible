@@ -48,3 +48,24 @@
 ## 2026-06-09 — Orchestrator loop (tracer bullet closed)
 - Added src/crucible/orchestrator.py: reflexive loop (score → introspect → cluster → atomic mutation → accept-on-train / report-on-held-out-test → best-so-far → promote) with target/max-iters/patience stopping.
 - Full suite 35/35 green; loop proven (improves to target; early-stops on no improvement) on fakes — no credentials needed.
+
+## 2026-06-09 — Mission Control FastAPI backend + Cloud Run image
+- Created src/crucible/server/app.py: SSE event stream (GET /events), POST /run (background loop thread), POST /approve (threading.Event approval gate), startup init_tracing wrapped in try/except, permissive CORS, local read-only read_schema helper. Wires the orchestrator loop to the EventBus.
+- Created Dockerfile (python:3.11-slim + nodejs/npm for npx Phoenix MCP, uv sync, uvicorn on 8080) and .dockerignore for Cloud Run deploy.
+
+## 2026-06-09 — Runtime driver scripts (spike, live loop, prebaked) + data README
+- Created scripts/spike_adk_phoenix_mcp.py: ADK<->Phoenix<->MCP wiring spike. Mirrors crucible.mcp_introspect construction exactly (LlmAgent, McpToolset + StdioConnectionParams, `from mcp import StdioServerParameters`, Runner + InMemorySessionService, run_async), reuses init_tracing(), runs one Phoenix-MCP agent turn, prints output + "SPIKE OK". Manual confirmation only (no test).
+- Created scripts/run_loop_cli.py: end-to-end loop on world_1. read_schema(db_path) read-only helper, weighted_sample(70)/stratified_split(0.43), gemini_model() as candidate+mutation model, introspect_failures + log_experiment wired, on_event=print, LoopConfig(max_iters=5, target=0.9, patience=2). Prints BEST + HISTORY.
+- Created scripts/run_prebaked.py: offline loop over 2 extra DBs (concert_singer + BIRD financial), reuses run_loop_cli.read_schema, writes data/prebaked_results.json as {db_id: {final_test, history}}.
+- Created data/README.md: Spider/BIRD download + placement instructions matching CRUCIBLE_DB_PATH/CRUCIBLE_SPIDER_DEV env vars; notes BIRD financial DB normalization for prebaked.
+- Imported gemini_model from crucible.models (not candidate, per scope). All three scripts py_compile clean. No modules modified.
+
+## 2026-06-09 — Add offline credential-free demo
+- Created scripts/offline_demo.py: runs the real orchestrator.run_loop against a real SQLite "world" DB with real SQL execution, using deterministic scripted candidate/mutation models (no API/credentials). Test score climbs 50% -> 100% over 3 accepted mutations. No existing modules modified; 35/35 tests still pass.
+
+## 2026-06-09 — Demo surface (parallel-agent pass): server, UI, scripts, offline demo
+- FastAPI Mission Control backend (src/crucible/server/app.py): SSE /events, /run (bg thread), /approve gate; try/except Phoenix tracing; Dockerfile + .dockerignore for Cloud Run.
+- React "mission control" UI (ui/): leaderboard with hero held-out Test %, hypothesis card, controls, promoted banner; built-in mock climb (?demo=1) so it runs with no backend. npm run build passes.
+- Runtime scripts: spike_adk_phoenix_mcp.py (live wiring), run_loop_cli.py (real e2e), run_prebaked.py (2-DB generality), data/README.md.
+- offline_demo.py: runs the REAL orchestrator loop on a real temp SQLite DB with a scripted model — climbs 50%→100% (3 accepted mutations) credential-free.
+- Packaging: added [build-system] (hatchling) so `crucible` installs as a package; bare `uv run`/uvicorn imports now work without PYTHONPATH. Full suite 35/35 green.
