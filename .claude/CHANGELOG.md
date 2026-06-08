@@ -39,3 +39,8 @@
 - Parallel-agent pass built phoenix_client.py, mcp_introspect.py, models.py (above).
 - Pinned doc-verified deps in pyproject.toml: google-adk>=2.2.0, google-genai>=2.0.0, arize-phoenix-client>=2.7.0, arize-phoenix-otel>=0.13.0, openinference-instrumentation-google-adk>=0.1.15, mcp>=1.0.0.
 - `uv sync` resolves+installs cleanly; all three modules import against the real SDKs; mutation suite still 6/6 green. Committed uv.lock for reproducible team installs. Runtime verification of phoenix/mcp/genai still pending the credentialed spike.
+
+## 2026-06-09 — Eval substrate (single-team build)
+- Dropped the two-team split; building solo now.
+- Added (TDD): comparator.py, sandbox.py, datasets/{hardness,spider_loader,split}.py, candidate.py, eval_engine.py.
+- Full suite 33/33 green.
