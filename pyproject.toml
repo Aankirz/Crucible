@@ -1,0 +1,25 @@
+[project]
+name = "crucible"
+version = "0.1.0"
+description = "An agent that builds and self-optimizes text-to-SQL agents via its own Phoenix traces."
+requires-python = ">=3.11,<3.13"
+dependencies = [
+  # NOTE (verify): pin these to the versions used by github.com/Arize-ai/gemini-hackathon
+  # if resolution fails. Team B owns confirming the ADK / Phoenix / OpenInference versions.
+  "google-adk>=0.3.0",
+  "google-genai>=1.0.0",
+  "arize-phoenix-client>=1.0.0",
+  "arize-phoenix-otel>=0.6.0",
+  "openinference-instrumentation-google-adk>=0.1.0",
+  "fastapi>=0.110.0",
+  "sse-starlette>=2.0.0",
+  "uvicorn>=0.29.0",
+  "python-dotenv>=1.0.0",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.0.0", "pytest-asyncio>=0.23.0"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+asyncio_mode = "auto"

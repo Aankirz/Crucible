@@ -4,3 +4,6 @@ __pycache__/
 node_modules/
 *.sqlite
 .DS_Store
+
+# Private PM command-center — intentionally NOT shared in the repo
+MASTER-PROJECT-PLAN.md

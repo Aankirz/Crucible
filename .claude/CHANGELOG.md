@@ -15,3 +15,9 @@
 - Connected remote Aankirz/Crucible; rebased planning docs onto the LICENSE base.
 - Merged design baseline (spec + plan + PRD) to `main` via PR #1.
 - Created `ready-for-agent` label; published the PRD as issue #2 with that label.
+
+## 2026-06-08 — GATE 0 foundation + two-team coordination
+- Built foundation: pyproject.toml, Makefile, .env.example, package layout, `src/crucible/types.py` (shared contract incl. ModelFn + Hypothesis), `src/crucible/server/events.py` (frozen SSE event contract). Verified contracts import cleanly.
+- Added `docs/superpowers/COORDINATION.md` (gates + disjoint file ownership + merge protocol).
+- Added per-team session plans with explicit STOP/coordinate markers: `SESSION-TEAM-A.md` (eval substrate, credential-free) and `SESSION-TEAM-B.md` (brain + integration).
+- Added `MASTER-PROJECT-PLAN.md` as the private PM command center — git-ignored (added to .gitignore).
