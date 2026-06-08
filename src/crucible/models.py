@@ -91,8 +91,14 @@ def gemini_model(model_name: str | None = None) -> ModelFn:
 
 
 def _retry_delay_seconds(error: Exception, attempt: int) -> float:
-    """Backoff for a 429: prefer the server's suggested 'retryDelay', else exponential."""
-    match = re.search(r"ret[dD]elay['\"]?:\s*['\"]?(\d+(?:\.\d+)?)", str(error))
+    """Backoff for a 429: prefer the server's suggested delay, else exponential.
+
+    Matches both the structured `'retryDelay': '33s'` field and the prose
+    `Please retry in 33.7s` message that the Gemini API returns.
+    """
+    text = str(error)
+    match = re.search(r"retry\s*[dD]elay['\"]?:?\s*['\"]?(\d+(?:\.\d+)?)", text) \
+        or re.search(r"retry in\s*(\d+(?:\.\d+)?)\s*s", text)
     if match:
         return float(match.group(1)) + 1.0
     return DEFAULT_BACKOFF_S * (2 ** attempt)
