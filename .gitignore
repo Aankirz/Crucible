@@ -7,3 +7,10 @@ node_modules/
 
 # Private PM command-center — intentionally NOT shared in the repo
 MASTER-PROJECT-PLAN.md
+
+# UI build artifacts
+ui/dist/
+dist/
+
+# Demo / run outputs
+data/prebaked_results.json
