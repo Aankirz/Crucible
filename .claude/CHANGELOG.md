@@ -44,3 +44,7 @@
 - Dropped the two-team split; building solo now.
 - Added (TDD): comparator.py, sandbox.py, datasets/{hardness,spider_loader,split}.py, candidate.py, eval_engine.py.
 - Full suite 33/33 green.
+
+## 2026-06-09 — Orchestrator loop (tracer bullet closed)
+- Added src/crucible/orchestrator.py: reflexive loop (score → introspect → cluster → atomic mutation → accept-on-train / report-on-held-out-test → best-so-far → promote) with target/max-iters/patience stopping.
+- Full suite 35/35 green; loop proven (improves to target; early-stops on no improvement) on fakes — no credentials needed.
