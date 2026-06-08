@@ -35,8 +35,10 @@ DEFAULT_MODEL = "gemini-3-flash-preview"
 SCORING_TEMPERATURE = 0.0
 # The loop makes many calls; free tiers throttle. Retry 429s with backoff so a
 # rate limit pauses the run instead of crashing it.
-MAX_RETRIES = 5
+MAX_RETRIES = 6
 DEFAULT_BACKOFF_S = 8.0
+# Transient HTTP codes worth retrying: 429 rate limit, 503 model overloaded.
+RETRYABLE_CODES = (429, 503)
 
 
 def gemini_model(model_name: str | None = None) -> ModelFn:
@@ -70,8 +72,9 @@ def gemini_model(model_name: str | None = None) -> ModelFn:
     def call(prompt: str) -> str:
         """Send `prompt` to Gemini and return the raw response text.
 
-        Retries on 429 (rate limit), honoring the server's suggested retry delay
-        when present, so a throttled free tier pauses rather than crashes the loop.
+        Retries transient failures with backoff so the multi-call loop pauses
+        rather than crashes: 429 (rate limit, honoring the server's suggested
+        delay) and 503 (model temporarily overloaded).
         """
         for attempt in range(MAX_RETRIES):
             try:
@@ -81,8 +84,9 @@ def gemini_model(model_name: str | None = None) -> ModelFn:
                     config=config,
                 )
                 return response.text or ""
-            except genai_errors.ClientError as e:
-                if getattr(e, "code", None) != 429 or attempt == MAX_RETRIES - 1:
+            except (genai_errors.ClientError, genai_errors.ServerError) as e:
+                if getattr(e, "code", None) not in RETRYABLE_CODES \
+                        or attempt == MAX_RETRIES - 1:
                     raise
                 time.sleep(_retry_delay_seconds(e, attempt))
         return ""
