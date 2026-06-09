@@ -87,3 +87,6 @@
 - MEDIUM: weighted_sample tops up to n (rounding left it short); gold_requires_order is depth-aware (subquery ORDER BY no longer forces ordered match); empty mutation no longer wastes a version.
 - SECURITY: Phoenix API key no longer passed as npx CLI arg (argv leaks via ps) — env only, in mcp_introspect.py + spike. No secrets committed (verified).
 - Offline demo still climbs 50%→100%.
+
+## 2026-06-09 — Vertex AI mode (use Cloud credits)
+- models.py: gemini_model() now supports two auth modes via `_build_client`: Vertex AI (GOOGLE_GENAI_USE_VERTEXAI=true + project/location + ADC) to consume Google Cloud credits with no daily cap, or AI-Studio API key (default). +2 tests (65 total). Documented both modes in .env.example.

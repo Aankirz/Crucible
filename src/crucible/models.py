@@ -41,12 +41,45 @@ DEFAULT_BACKOFF_S = 8.0
 RETRYABLE_CODES = (429, 503)
 
 
+def _truthy(value: str | None) -> bool:
+    return (value or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _build_client() -> "genai.Client":
+    """Build a genai client in one of two modes:
+
+    * **Vertex AI** (when `GOOGLE_GENAI_USE_VERTEXAI` is truthy): authenticates via
+      Application Default Credentials (`gcloud auth application-default login`) and
+      bills the Cloud project — so Google Cloud credits ($300 trial / lab credits)
+      are consumed instead of the AI-Studio free tier. Requires `GOOGLE_CLOUD_PROJECT`
+      and `GOOGLE_CLOUD_LOCATION` (e.g. `us-central1`).
+    * **AI Studio** (default): authenticates with the `GOOGLE_API_KEY` API key.
+    """
+    if _truthy(os.environ.get("GOOGLE_GENAI_USE_VERTEXAI")):
+        project = os.environ.get("GOOGLE_CLOUD_PROJECT")
+        location = os.environ.get("GOOGLE_CLOUD_LOCATION")
+        if not project or not location:
+            raise RuntimeError(
+                "Vertex mode needs GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION "
+                "(and `gcloud auth application-default login`)."
+            )
+        return genai.Client(vertexai=True, project=project, location=location)
+
+    api_key = os.environ.get("GOOGLE_API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "GOOGLE_API_KEY is not set; required for AI-Studio mode. "
+            "(Or set GOOGLE_GENAI_USE_VERTEXAI=true to use Vertex AI + Cloud credits.)"
+        )
+    return genai.Client(api_key=api_key)
+
+
 def gemini_model(model_name: str | None = None) -> ModelFn:
     """Build a `ModelFn` backed by Gemini via the google-genai SDK.
 
-    The API key is read from the `GOOGLE_API_KEY` environment variable. The model
-    name is resolved from the `model_name` argument, then the `GEMINI_MODEL`
-    environment variable, then `DEFAULT_MODEL`.
+    Auth mode is chosen by `_build_client`: Vertex AI (Cloud credits) when
+    `GOOGLE_GENAI_USE_VERTEXAI` is truthy, else AI Studio via `GOOGLE_API_KEY`.
+    The model name resolves from `model_name`, then `GEMINI_MODEL`, then `DEFAULT_MODEL`.
 
     Args:
         model_name: Optional explicit model id. Overrides the env var when given.
@@ -56,17 +89,11 @@ def gemini_model(model_name: str | None = None) -> ModelFn:
         returns the response text (empty string when the response has no text).
 
     Raises:
-        RuntimeError: If `GOOGLE_API_KEY` is not set in the environment.
+        RuntimeError: If required auth env vars for the selected mode are missing.
     """
-    api_key = os.environ.get("GOOGLE_API_KEY")
-    if not api_key:
-        raise RuntimeError(
-            "GOOGLE_API_KEY is not set; required to build the Gemini model adapter."
-        )
-
     resolved_model = model_name or os.environ.get("GEMINI_MODEL") or DEFAULT_MODEL
 
-    client = genai.Client(api_key=api_key)
+    client = _build_client()
     config = types.GenerateContentConfig(temperature=SCORING_TEMPERATURE)
 
     def call(prompt: str) -> str:

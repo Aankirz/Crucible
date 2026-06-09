@@ -186,3 +186,42 @@ def test_retry_delay_falls_back_to_exponential():
     err = Exception("some opaque error with no hint")
     assert _retry_delay_seconds(err, attempt=0) == models.DEFAULT_BACKOFF_S
     assert _retry_delay_seconds(err, attempt=2) == models.DEFAULT_BACKOFF_S * 4
+
+
+# --- Vertex AI mode (Cloud credits path) -------------------------------------
+
+
+def test_vertex_mode_builds_vertex_client(monkeypatch):
+    """When GOOGLE_GENAI_USE_VERTEXAI is set, the client is built for Vertex
+    (project+location, ADC auth) — not the API-key path."""
+    captured = {}
+
+    def fake_client(**kwargs):
+        captured.update(kwargs)
+        class _C:
+            class models:
+                @staticmethod
+                def generate_content(**_):
+                    return _FakeResponse("SELECT 1")
+        return _C()
+
+    monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "true")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "my-proj")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "us-central1")
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.setattr(models.genai, "Client", fake_client)
+
+    fn = models.gemini_model("gemini-3-pro-preview")
+    assert fn("Q: x\nSQL:") == "SELECT 1"
+    assert captured.get("vertexai") is True
+    assert captured.get("project") == "my-proj"
+    assert captured.get("location") == "us-central1"
+    assert "api_key" not in captured
+
+
+def test_vertex_mode_requires_project_and_location(monkeypatch):
+    monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "1")
+    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
+    monkeypatch.delenv("GOOGLE_CLOUD_LOCATION", raising=False)
+    with pytest.raises(RuntimeError, match="GOOGLE_CLOUD_PROJECT"):
+        models.gemini_model()
