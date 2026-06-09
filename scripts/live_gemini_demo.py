@@ -130,11 +130,16 @@ def on_event(e: dict) -> None:
 def main() -> None:
     db = build_db()
     model = gemini_model()
+    # Budget knobs keep the run under the AI-Studio free-tier daily cap (~20 calls).
+    n_train = int(os.environ.get("CRUCIBLE_LIVE_TRAIN", len(TRAIN)))
+    n_test = int(os.environ.get("CRUCIBLE_LIVE_TEST", len(TEST)))
+    max_iters = int(os.environ.get("CRUCIBLE_LIVE_ITERS", 3))
+    train, test = TRAIN[:n_train], TEST[:n_test]
     print("=" * 60)
     print("  Crucible — LIVE demo (real Gemini 3 + real SQLite)")
     print("=" * 60)
-    print(f"  model: {os.environ.get('GEMINI_MODEL')}   train: {len(TRAIN)}  "
-          f"test(held-out): {len(TEST)}")
+    print(f"  model: {os.environ.get('GEMINI_MODEL')}   train: {len(train)}  "
+          f"test(held-out): {len(test)}   max_iters: {max_iters}")
     print("-" * 60)
     best, history = run_loop(
         # v1 starts WITHOUT the schema: the model must guess table/column names and
@@ -143,13 +148,13 @@ def main() -> None:
         initial_spec=CandidateSpec(
             1, "You are an expert SQLite analyst. Output only a single SQL query.",
             enable_schema=False),
-        schema_ddl=SCHEMA, train=TRAIN, test=TEST,
+        schema_ddl=SCHEMA, train=train, test=test,
         sandbox=SqlSandbox(db),
         candidate_model=model, mutation_model=model,
         introspect=lambda name: "",                       # Phoenix MCP stubbed here
         log_experiment=lambda result, db_id: f"{db_id}-v{result.spec_version}",
         on_event=on_event, db_id="world",
-        config=LoopConfig(max_iters=3, target=0.9, patience=2),
+        config=LoopConfig(max_iters=max_iters, target=0.9, patience=2),
     )
     print("-" * 60)
     print(f"  BEST v{best[0].version} | held-out test {best[1].score*100:.1f}%")
