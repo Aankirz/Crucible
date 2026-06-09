@@ -76,3 +76,6 @@
 - Hardened gemini adapter: retry/backoff on 429 (parse retryDelay / 'retry in Xs') and 503 (overloaded).
 - Added scripts/live_gemini_demo.py: real loop on a real bundled SQLite "world" DB driven by live Gemini (Phoenix stubbed).
 - BLOCKER: Gemini free tier caps the project at ~20 requests/day; a full climbing run needs ~30-40 calls -> needs billing or a budgeted tiny run. Offline demo remains the mechanical climb proof (50%->100%).
+
+## 2026-06-09 — README + demo script (Phase 8.3)
+- Rewrote README.md: pitch, loop diagram, honesty safeguards, architecture table, quickstart (offline demo / live Gemini / full e2e / UI), 90-second demo script, status. Completes the last credential-free master-plan item.
