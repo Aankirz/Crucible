@@ -79,3 +79,11 @@
 
 ## 2026-06-09 — README + demo script (Phase 8.3)
 - Rewrote README.md: pitch, loop diagram, honesty safeguards, architecture table, quickstart (offline demo / live Gemini / full e2e / UI), 90-second demo script, status. Completes the last credential-free master-plan item.
+
+## 2026-06-09 — Review hardening (3 parallel agents: tests + code review + security)
+- Added 28 tests (test_models, test_phoenix_client, test_server) → suite now 63 passing.
+- CRITICAL fix: MCP introspection never fired (orchestrator looked up an experiment name that didn't match what phoenix_client logged, and train split was never logged). Now logs the train split and uses the name log_experiment returns → introspection reads real failures.
+- HIGH: eval_engine now surfaces broken-gold-SQL errors and excludes them from the score (was silently scored as agent failure, skewing the leaderboard); EventBus made thread-safe via bind_loop + call_soon_threadsafe (cross-thread publish could freeze SSE); propose_mutation tolerates non-JSON model replies (was crashing the loop).
+- MEDIUM: weighted_sample tops up to n (rounding left it short); gold_requires_order is depth-aware (subquery ORDER BY no longer forces ordered match); empty mutation no longer wastes a version.
+- SECURITY: Phoenix API key no longer passed as npx CLI arg (argv leaks via ps) — env only, in mcp_introspect.py + spike. No secrets committed (verified).
+- Offline demo still climbs 50%→100%.

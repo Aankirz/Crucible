@@ -8,14 +8,22 @@ from crucible.sandbox import SqlSandbox
 def evaluate(spec: CandidateSpec, schema_ddl: str, items: list[EvalItem],
              sandbox: SqlSandbox, model: ModelFn, split: str) -> EvalResult:
     results = []
+    scored = 0          # items we could actually grade (gold executed)
+    matched = 0
     for item in items:
         predicted = run_candidate_on_item(spec, schema_ddl, item, model)
         pred_rows, pred_err = sandbox.run(predicted)
-        if pred_err is not None:
+        if pred_err is not None:                         # agent produced invalid SQL -> a real failure
             results.append(ItemResult(item, predicted, False, error=pred_err))
+            scored += 1
             continue
-        gold_rows, _ = sandbox.run(item.gold_sql)
+        gold_rows, gold_err = sandbox.run(item.gold_sql)
+        if gold_err is not None:                         # broken gold: a dataset bug, not the agent's fault
+            results.append(ItemResult(item, predicted, False, error=f"[gold] {gold_err}"))
+            continue                                     # excluded from the score so it can't skew the climb
         match = compare_results(gold_rows, pred_rows, gold_requires_order(item.gold_sql))
         results.append(ItemResult(item, predicted, match.is_match))
-    score = sum(r.is_match for r in results) / len(results) if results else 0.0
+        scored += 1
+        matched += int(match.is_match)
+    score = matched / scored if scored else 0.0
     return EvalResult(spec.version, split, score, tuple(results))

@@ -38,6 +38,10 @@ def run_loop(initial_spec: CandidateSpec, schema_ddl: str, train, test,
     train_res = _classify_all(evaluate(spec, schema_ddl, train, sandbox, candidate_model, "train"))
     test_res = evaluate(spec, schema_ddl, test, sandbox, candidate_model, "test")
     log_experiment(test_res, db_id)
+    # Log the train split too and keep the name it was stored under: introspection
+    # reads THIS experiment's failing rows via MCP. Using the returned name avoids
+    # guessing the storage format (the cause of the prior name-mismatch bug).
+    train_name = log_experiment(train_res, db_id)
     best = (spec, test_res)
     history.append((spec.version, train_res.score, test_res.score))
     on_event({"type": "version", "version": spec.version,
@@ -47,14 +51,20 @@ def run_loop(initial_spec: CandidateSpec, schema_ddl: str, train, test,
     for _ in range(config.max_iters):
         if test_res.score >= config.target:
             break
-        experiment_name = f"{db_id}-v{spec.version}-train"
-        mcp_summary = introspect(experiment_name)               # agent-initiated MCP read
-        failures = [r for r in train_res.item_results if not r.is_match]
+        mcp_summary = introspect(train_name)                   # agent-initiated MCP read of own failures
+        failures = [r for r in train_res.item_results
+                    if not r.is_match and not (r.error or "").startswith("[gold]")]
         category = pick_top_cluster(failures)
         if category is None:
             break
         on_event({"type": "hypothesis", "category": category, "mcp_summary": mcp_summary})
         hyp = propose_mutation(spec, category, failures, mutation_model, mcp_summary)
+        if not hyp.instruction_add and not hyp.few_shots:      # empty/garbled proposal: don't waste a version
+            no_improve += 1
+            on_event({"type": "rejected", "version": spec.version + 1})
+            if no_improve >= config.patience:
+                break
+            continue
         candidate = apply_hypothesis(spec, hyp)
         cand_train = _classify_all(
             evaluate(candidate, schema_ddl, train, sandbox, candidate_model, "train"))
@@ -62,6 +72,7 @@ def run_loop(initial_spec: CandidateSpec, schema_ddl: str, train, test,
             spec, train_res = candidate, cand_train
             test_res = evaluate(spec, schema_ddl, test, sandbox, candidate_model, "test")
             log_experiment(test_res, db_id)
+            train_name = log_experiment(train_res, db_id)       # refresh: introspection reads the new train failures
             if test_res.score > best[1].score:
                 best = (spec, test_res)
             no_improve = 0

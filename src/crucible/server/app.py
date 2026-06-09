@@ -102,6 +102,8 @@ def _startup() -> None:
     Wrapped in try/except so the server still boots in environments without
     Phoenix configuration (e.g. local UI development, CI smoke imports).
     """
+    # Bind the running loop so the worker thread can publish events thread-safely.
+    bus.bind_loop(asyncio.get_running_loop())
     try:
         init_tracing()
     except Exception as exc:  # noqa: BLE001 - boot must not depend on Phoenix.

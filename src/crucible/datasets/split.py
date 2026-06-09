@@ -33,10 +33,18 @@ def weighted_sample(items: list[EvalItem], n: int, weights=None, seed: int = 0):
         by_diff[it.difficulty].append(it)
     rng = random.Random(seed)
     out = []
+    used = set()
     for diff, w in weights.items():
         group = by_diff.get(diff, [])[:]
         rng.shuffle(group)
         take = min(len(group), round(n * w))
-        out.extend(group[:take])
+        for it in group[:take]:
+            out.append(it)
+            used.add(id(it))
+    # Per-stratum rounding can sum to fewer than n; top up from leftovers to hit n.
+    if len(out) < n:
+        remaining = [it for it in items if id(it) not in used]
+        rng.shuffle(remaining)
+        out.extend(remaining[: n - len(out)])
     rng.shuffle(out)
     return out

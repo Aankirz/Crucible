@@ -28,7 +28,18 @@ def _normalize_row(row):
 
 
 def gold_requires_order(sql: str) -> bool:
-    return "order by" in sql.lower()
+    """True only for a TOP-LEVEL ORDER BY. An ORDER BY inside a subquery (paren depth
+    > 0) does not constrain the outer result order, so it must not force ordered match."""
+    s = sql.lower()
+    depth = 0
+    for i, c in enumerate(s):
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            depth = max(0, depth - 1)
+        elif depth == 0 and s.startswith("order by", i):
+            return True
+    return False
 
 
 def compare_results(gold_rows, pred_rows, order_matters: bool) -> MatchResult:

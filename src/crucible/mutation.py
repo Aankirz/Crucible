@@ -57,7 +57,11 @@ def propose_mutation(spec: CandidateSpec, category: str, failing_examples: list,
         f"{r.item.question} | {r.item.gold_sql} | {r.predicted_sql}" for r in failing_examples[:5]
     )
     raw = model(_PROMPT.format(category=category, mcp_summary=mcp_summary or "(none)", examples=examples))
-    data = json.loads(raw[raw.find("{"): raw.rfind("}") + 1])
+    json_str = raw[raw.find("{"): raw.rfind("}") + 1] if "{" in raw else ""
+    try:
+        data = json.loads(json_str)
+    except (json.JSONDecodeError, ValueError):
+        data = {}                                        # garbled reply -> empty hypothesis (loop treats as no-op)
     return Hypothesis(
         category=category,
         rationale=data.get("rationale", ""),

@@ -40,10 +40,23 @@ class PromotedEvent(TypedDict):
 
 
 class EventBus:
-    """Minimal fan-out bus: the loop publishes, each SSE subscriber gets its own queue."""
+    """Minimal fan-out bus: the loop publishes, each SSE subscriber gets its own queue.
+
+    The optimization loop runs in a worker thread while subscribers `await queue.get()`
+    inside the event loop. `asyncio.Queue` is NOT thread-safe, so when a loop is bound
+    (`bind_loop`, called on server startup) `publish` schedules the enqueue on the loop
+    via `call_soon_threadsafe` — without it, a cross-thread `put_nowait` may never wake
+    the waiting `get()` and SSE clients would silently freeze. With no loop bound (pure
+    unit tests) it enqueues directly.
+    """
 
     def __init__(self) -> None:
         self._subscribers: list[asyncio.Queue] = []
+        self._loop: asyncio.AbstractEventLoop | None = None
+
+    def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Bind the event loop that owns the subscriber queues (call from startup)."""
+        self._loop = loop
 
     def subscribe(self) -> asyncio.Queue:
         q: asyncio.Queue = asyncio.Queue()
@@ -52,4 +65,7 @@ class EventBus:
 
     def publish(self, event: dict) -> None:
         for q in self._subscribers:
-            q.put_nowait(event)
+            if self._loop is not None:
+                self._loop.call_soon_threadsafe(q.put_nowait, event)
+            else:
+                q.put_nowait(event)

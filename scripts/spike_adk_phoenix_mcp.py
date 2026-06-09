@@ -80,16 +80,13 @@ def _build_phoenix_toolset():
 
     server_params = StdioServerParameters(
         command="npx",
+        # API key passed ONLY via env (below), never argv (argv leaks via `ps`).
         args=[
             "-y",
             PHOENIX_MCP_PACKAGE,
             "--baseUrl",
             base_url,
-            "--apiKey",
-            api_key,
         ],
-        # Forward Phoenix env vars too; some phoenix-mcp versions read them
-        # directly instead of (or in addition to) the CLI flags.
         env={
             **os.environ,
             "PHOENIX_COLLECTOR_ENDPOINT": base_url,
