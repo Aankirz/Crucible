@@ -34,9 +34,20 @@ services:
       - key: CRUCIBLE_MAX_ITERS
         value: "3"
 
-      # --- Gemini credentials (set in the Render dashboard) --------------------
-      # One free AI Studio key, OR several comma-separated keys from different
-      # free projects via GOOGLE_API_KEYS to pool the 20/day quota (rotated on 429).
+      # --- Gemini credentials (Vertex AI — draws the Cloud trial credits) ------
+      # The "live" catalog DBs use Vertex AI. Paste the service-account key JSON
+      # into GOOGLE_SA_JSON in the dashboard (sync:false); the app writes it to a
+      # file at boot and points ADC at it. gemini-3-flash-preview is served from
+      # the `global` location on Vertex.
+      - key: GOOGLE_GENAI_USE_VERTEXAI
+        value: "true"
+      - key: GOOGLE_CLOUD_PROJECT
+        value: gen-lang-client-0589427141
+      - key: GOOGLE_CLOUD_LOCATION
+        value: global
+      - key: GOOGLE_SA_JSON
+        sync: false
+      # AI Studio fallback (unused while Vertex is on); kept for convenience.
       - key: GOOGLE_API_KEY
         sync: false
       - key: GOOGLE_API_KEYS
