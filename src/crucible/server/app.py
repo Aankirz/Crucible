@@ -291,6 +291,28 @@ def _run_loop_job(db_id: str) -> None:
 _DEMO_EVENT_DELAY_S = 1.1
 
 
+def _async_log_experiment(result: Any, db_id: str) -> str:
+    """Log a scored result to Phoenix in the background; return a name instantly.
+
+    Demo mode uses this so clicking Run on the hosted app produces REAL Phoenix
+    experiments (the EvalResults are genuine — real SQL executed against the DB),
+    while the UI climb never blocks on the (slow) Phoenix network round-trip. Best
+    effort: any logging failure is swallowed so the demo always completes.
+    """
+    name = f"crucible-{db_id}-v{result.spec_version}-{result.split}"
+    if not _spider_configured() and not os.environ.get("PHOENIX_API_KEY"):
+        return name  # no Phoenix configured -> skip the network call entirely
+
+    def _bg() -> None:
+        try:
+            log_experiment(result, db_id)
+        except Exception as exc:  # noqa: BLE001 - observability is best-effort.
+            print(f"[crucible] async Phoenix log skipped: {exc}")
+
+    threading.Thread(target=_bg, name="crucible-phoenix-log", daemon=True).start()
+    return name
+
+
 def _run_demo_job(db_id: str) -> None:
     """Background worker: stream the REAL optimization loop, paced for the UI.
 
@@ -333,9 +355,10 @@ def _run_demo_job(db_id: str) -> None:
             candidate_model=demo.make_candidate_model(),
             mutation_model=demo.make_mutation_model(),
             introspect=demo.introspect,
-            # Fast local stub (no network) so the UI climb is snappy and never
-            # blocks on Phoenix; real Phoenix logging is used by the live job.
-            log_experiment=demo.log_experiment,
+            # Log REAL Phoenix experiments in the background (genuine EvalResults
+            # from real SQL) so the live product populates the Arize space, while
+            # the UI climb stays snappy. Returns a name instantly; never blocks.
+            log_experiment=_async_log_experiment,
             on_event=paced_relay,
             db_id=db_id,
             config=LOOP_CONFIG,

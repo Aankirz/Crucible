@@ -126,3 +126,6 @@
 
 ## 2026-06-12 — Harden live MCP introspection (retry transient 503s)
 - mcp_introspect.introspect_failures now retries transient failures (503/overload/429) up to 3x with backoff before falling back to the deterministic classifier; fails fast on terminal errors (missing creds). Added _is_transient helper. +5 tests (test_mcp_introspect.py). 70 tests green.
+
+## 2026-06-12 — Demo run logs REAL Phoenix experiments (async)
+- _async_log_experiment: demo mode now logs genuine EvalResults to Phoenix in a background thread, so clicking Run on the hosted app populates the Arize Phoenix space with real experiments while the UI climb stays snappy (non-blocking, best-effort). 70 tests green.
