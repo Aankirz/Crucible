@@ -15,6 +15,11 @@ export function Leaderboard({ events }: { events: LoopEvent[] }) {
   const rejected = new Set(
     events.filter((e) => e.type === "rejected").map((e) => (e as Extract<LoopEvent, { type: "rejected" }>).version)
   );
+  const promoted = new Set(
+    events
+      .filter((e) => e.type === "promoted")
+      .map((e) => (e as Extract<LoopEvent, { type: "promoted" }>).version)
+  );
 
   const best = versions.reduce((m, v) => Math.max(m, v.test), 0);
   const leaderVersion = versions.find((v) => v.test === best)?.version;
@@ -42,14 +47,22 @@ export function Leaderboard({ events }: { events: LoopEvent[] }) {
           <tbody>
             {versions.map((v) => {
               const isLeader = v.version === leaderVersion;
+              const isPromoted = promoted.has(v.version);
+              const rowClass = [
+                "row",
+                isLeader ? "leader" : "",
+                isPromoted ? "promoted-row" : "",
+              ]
+                .filter(Boolean)
+                .join(" ");
               return (
-                <tr
-                  key={v.version}
-                  className={isLeader ? "row leader" : "row"}
-                >
+                <tr key={v.version} className={rowClass}>
                   <td className="ver-cell">
                     <span className="ver-badge">v{v.version}</span>
                     {isLeader && <span className="leader-tag">leader</span>}
+                    {isPromoted && (
+                      <span className="promoted-tag">promoted</span>
+                    )}
                   </td>
                   <td className="train-cell">{pct(v.train)}</td>
                   <td className="test-cell">

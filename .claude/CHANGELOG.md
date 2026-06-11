@@ -133,3 +133,19 @@
 ## 2026-06-12 — VERIFIED LIVE END-TO-END (Vertex AI + Phoenix + MCP)
 - Switched to Vertex AI (gemini-3-flash-preview, location=global) drawing the Google Cloud $300 trial credits — the AI-Studio prepay key could not use them. ADC re-authed as aankir101 (project gen-lang-client-0589427141, billing linked, Vertex API enabled).
 - Verified live: real Gemini 3 climb; and the full Arize money shot — real flow -> real Phoenix experiment -> Gemini agent reads its OWN failures via the Phoenix MCP server and correctly diagnoses JOIN/GROUP BY/ORDER BY omissions (execution_match=0.4 matched). PROOF.md added.
+
+## 2026-06-12 — Multi-DB catalog + richer SSE events (v2 contract)
+- Added 3 self-contained Spider-style benchmark DBs (concert_singer, university, ecommerce), each with CREATE TABLE schema, INSERT rows, and 13 hand-authored EvalItems (8 train / 5 test) covering JOIN, GROUP BY/HAVING, ORDER BY+LIMIT, and subquery patterns. All 39 gold SQL verified to execute against their bundled SQLite DBs.
+- Added crucible/datasets/catalog.py registry: DatabaseDescriptor + build_db/get_items/get_schema; world=mode "demo", the 3 new ones=mode "live".
+- app.py: new GET /databases and GET /schema endpoints; /run is now catalog-aware (world->deterministic demo path, live DBs->real Gemini via _run_live_job) and returns mode in its ack. Live runs bounded by CRUCIBLE_MAX_ITERS (default 3).
+- Emitted new SSE events (status/item/phoenix/run_complete) in both demo and live paths, matching the frozen UI_API_CONTRACT ordering. Phoenix deep link built from PHOENIX_COLLECTOR_ENDPOINT (else "").
+- eval_engine.evaluate + orchestrator.run_loop gained an OPTIONAL on_item callback (default None) so existing callers/signatures stay backward-compatible.
+- render.yaml: documented CRUCIBLE_MAX_ITERS.
+- tests/conftest.py: neutralize a local .env's Vertex vars so the deterministic suite is not order-dependent (fixes a pre-existing test_models flake when test_server imports app first).
+- Added tests/test_catalog.py + new on_item/endpoint tests. Full suite: 100 passed (70 existing + 30 new).
+
+## 2026-06-12 — Landing page + multi-DB picker + step-by-step console (parallel build)
+- Frozen UI/API contract (docs/UI_API_CONTRACT.md). Backend + frontend built in parallel against it.
+- Backend: 3 new bundled DBs (concert_singer, university, ecommerce; 39 gold SQL all execute) + catalog.py; GET /databases, GET /schema; catalog-aware /run (world=demo instant, live DBs=real Gemini, CRUCIBLE_MAX_ITERS bound). Richer SSE events: status/item/phoenix/run_complete via optional on_item callback threaded through evaluate+run_loop (backward compatible). 100 tests pass.
+- Frontend: landing hero + CTAs + loop diagram, How-it-works, live Console (DB dropdown w/ demo|live badge, schema viewer, step-by-step ActivityLog showing each generated SQL ✓/✗, Phoenix panel with experiment links, leaderboard, hypothesis), Bring-your-own-DB guide, footer. Build green.
+- Verified integration: /databases (4), /schema, and item/status/phoenix events stream end-to-end.

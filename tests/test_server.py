@@ -87,6 +87,77 @@ def test_app_imports_and_client_constructs(client):
     assert app_module.app.title == "Crucible Mission Control"
 
 
+# --- /databases & /schema ----------------------------------------------------
+
+
+def test_databases_returns_catalog(client):
+    resp = client.get("/databases")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "databases" in body
+    ids = [d["id"] for d in body["databases"]]
+    assert "world" in ids
+    assert {"concert_singer", "university", "ecommerce"} <= set(ids)
+    # Every entry carries the frozen contract fields.
+    for d in body["databases"]:
+        assert set(d) == {
+            "id", "name", "domain", "tables",
+            "num_questions", "mode", "blurb",
+        }
+
+
+def test_databases_marks_modes(client):
+    body = client.get("/databases").json()
+    modes = {d["id"]: d["mode"] for d in body["databases"]}
+    assert modes["world"] == "demo"
+    assert modes["concert_singer"] == "live"
+    assert modes["university"] == "live"
+    assert modes["ecommerce"] == "live"
+
+
+def test_schema_returns_ddl_for_known_db(client):
+    resp = client.get("/schema", params={"db_id": "university"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["db_id"] == "university"
+    assert "CREATE TABLE" in body["schema"]
+
+
+def test_schema_unknown_db_returns_empty(client):
+    body = client.get("/schema", params={"db_id": "nope"}).json()
+    assert body["db_id"] == "nope"
+    assert body["schema"] == ""
+
+
+def test_run_live_db_reports_live_mode(client, monkeypatch):
+    """Catalog 'live' db_id dispatches the live worker and reports mode=live."""
+    started = threading.Event()
+    monkeypatch.setattr(
+        app_module, "_run_live_job",
+        lambda db_id: (started.set(), app_module._run_state.update(running=False)),
+    )
+    resp = client.post("/run", params={"db_id": "ecommerce", "autopilot": True})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["started"] is True
+    assert body["db_id"] == "ecommerce"
+    assert body["mode"] == "live"
+    assert started.wait(timeout=5.0)
+
+
+def test_run_world_reports_demo_mode(client, monkeypatch):
+    """Catalog 'world' db_id dispatches the demo worker and reports mode=demo."""
+    started = threading.Event()
+    monkeypatch.setattr(
+        app_module, "_run_demo_job",
+        lambda db_id: (started.set(), app_module._run_state.update(running=False)),
+    )
+    resp = client.post("/run", params={"db_id": "world"})
+    assert resp.status_code == 200
+    assert resp.json()["mode"] == "demo"
+    assert started.wait(timeout=5.0)
+
+
 # --- /approve ----------------------------------------------------------------
 
 
@@ -153,7 +224,11 @@ def test_run_starts_loop_and_invokes_orchestrator(client, monkeypatch):
     resp = client.post("/run", params={"db_id": "world_1", "autopilot": True})
 
     assert resp.status_code == 200
-    assert resp.json() == {"started": True, "db_id": "world_1", "autopilot": True}
+    # "world_1" is unknown to the catalog -> legacy env dispatch (CRUCIBLE_DEMO
+    # unset here) reports mode="live". `mode` was added per the v2 contract.
+    assert resp.json() == {
+        "started": True, "db_id": "world_1", "mode": "live", "autopilot": True,
+    }
 
     assert done.wait(timeout=5.0), "loop thread did not run"
 

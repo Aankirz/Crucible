@@ -27,6 +27,13 @@ services:
         # Free-tier-safe Gemini 3 id. gemini-3-pro-preview needs billing.
         value: gemini-3-flash-preview
 
+      # --- Live-run bound ------------------------------------------------------
+      # Caps the optimization iterations for LIVE catalog databases (concert_singer,
+      # university, ecommerce) so a hosted run can't loop endlessly and burn Gemini
+      # quota. The deterministic "world" demo ignores this. Default is 3.
+      - key: CRUCIBLE_MAX_ITERS
+        value: "3"
+
       # --- Gemini credentials (set in the Render dashboard) --------------------
       # One free AI Studio key, OR several comma-separated keys from different
       # free projects via GOOGLE_API_KEYS to pool the 20/day quota (rotated on 429).

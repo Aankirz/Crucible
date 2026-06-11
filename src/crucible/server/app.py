@@ -22,13 +22,14 @@ import os
 import sqlite3
 import threading
 import time
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Callable
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sse_starlette.sse import EventSourceResponse
 
+from crucible.datasets import catalog
 from crucible.datasets.spider_loader import load_spider_dev
 from crucible.datasets.split import stratified_split, weighted_sample
 from crucible.datasets.world_bundle import (
@@ -53,6 +54,21 @@ TEST_FRACTION = 0.43
 SAMPLE_SEED = 0
 INITIAL_SYSTEM_PROMPT = "You are an expert SQLite analyst. Output only SQL."
 LOOP_CONFIG = LoopConfig(max_iters=5, target=0.9, patience=2)
+
+# Default bound on a hosted LIVE run so it can't loop endlessly (each iter costs
+# real Gemini calls). Overridable via CRUCIBLE_MAX_ITERS. The demo "world" path
+# keeps LOOP_CONFIG unchanged.
+DEFAULT_LIVE_MAX_ITERS = 3
+
+
+def _live_loop_config() -> LoopConfig:
+    """LoopConfig for live DBs: bound iterations by CRUCIBLE_MAX_ITERS (default 3)."""
+    raw = os.environ.get("CRUCIBLE_MAX_ITERS")
+    try:
+        max_iters = int(raw) if raw else DEFAULT_LIVE_MAX_ITERS
+    except ValueError:
+        max_iters = DEFAULT_LIVE_MAX_ITERS
+    return LoopConfig(max_iters=max(1, max_iters), target=0.9, patience=2)
 
 # Read-only DDL query: every table's CREATE statement.
 _SCHEMA_QUERY = (
@@ -149,6 +165,20 @@ def healthz() -> dict[str, Any]:
     }
 
 
+@app.get("/databases")
+def databases() -> dict[str, Any]:
+    """Return the catalog of bundled databases the user can pick in the UI."""
+    return catalog.catalog_payload()
+
+
+@app.get("/schema")
+def schema(db_id: str = DEFAULT_DB_ID) -> dict[str, Any]:
+    """Return the CREATE TABLE DDL for `db_id` so the UI can show the schema."""
+    if not catalog.is_known(db_id):
+        return {"db_id": db_id, "schema": "", "reason": "unknown db_id"}
+    return {"db_id": db_id, "schema": catalog.get_schema(db_id)}
+
+
 @app.get("/events")
 async def stream_events() -> EventSourceResponse:
     """SSE endpoint: stream JSON-encoded loop events to a connected client."""
@@ -169,12 +199,31 @@ def approve() -> dict[str, bool]:
     return {"ok": True}
 
 
+def _resolve_target(db_id: str) -> tuple[Callable[[str], None], str]:
+    """Pick the worker + report the run mode for `db_id`.
+
+    Catalog "demo" databases (e.g. "world") stream the deterministic instant loop;
+    catalog "live" databases run the real Gemini loop. Unknown ids fall back to the
+    legacy env-based dispatch (`CRUCIBLE_DEMO`) so the existing Spider/world_1 path
+    is unchanged.
+
+    Returns:
+        A `(worker, mode)` tuple where mode is "demo" or "live".
+    """
+    if catalog.is_known(db_id):
+        mode = catalog.get_mode(db_id)
+        return (_run_demo_job if mode == "demo" else _run_live_job), mode
+    # Legacy path: env decides; report a best-effort mode string.
+    return (_run_demo_job, "demo") if _demo_mode() else (_run_loop_job, "live")
+
+
 @app.post("/run")
 def run(db_id: str = DEFAULT_DB_ID, autopilot: bool = True) -> dict[str, Any]:
     """Start an optimization loop for `db_id` in a background daemon thread.
 
     Args:
-        db_id: Spider/BIRD database id to optimize against.
+        db_id: Bundled database id to optimize against ("world" = instant demo;
+            the live catalog entries run real Gemini).
         autopilot: When False, the loop blocks before promoting the final best
             candidate until POST /approve is called (or `APPROVAL_TIMEOUT_S`).
 
@@ -188,7 +237,7 @@ def run(db_id: str = DEFAULT_DB_ID, autopilot: bool = True) -> dict[str, Any]:
     _run_state["running"] = True
     _approval_gate.clear()
 
-    target = _run_demo_job if _demo_mode() else _run_loop_job
+    target, mode = _resolve_target(db_id)
     thread = threading.Thread(
         target=target,
         args=(db_id,),
@@ -196,7 +245,7 @@ def run(db_id: str = DEFAULT_DB_ID, autopilot: bool = True) -> dict[str, Any]:
         daemon=True,
     )
     thread.start()
-    return {"started": True, "db_id": db_id, "autopilot": autopilot}
+    return {"started": True, "db_id": db_id, "mode": mode, "autopilot": autopilot}
 
 
 def _demo_mode() -> bool:
@@ -221,6 +270,11 @@ def _relay_event(event: dict[str, Any]) -> None:
     """
     if event.get("type") == "promoted" and not _run_state["autopilot"]:
         _approval_gate.wait(timeout=APPROVAL_TIMEOUT_S)
+    bus.publish(event)
+
+
+def _relay_item(event: dict[str, Any]) -> None:
+    """Forward a per-question `item` event to SSE clients (no approval gating)."""
     bus.publish(event)
 
 
@@ -277,8 +331,45 @@ def _run_loop_job(db_id: str) -> None:
             introspect=introspect_failures,
             log_experiment=log_experiment,
             on_event=_relay_event,
+            on_item=_relay_item,
             db_id=db_id,
             config=LOOP_CONFIG,
+        )
+    except Exception as exc:  # noqa: BLE001 - surface failure to the UI stream.
+        bus.publish({"type": "error", "message": str(exc)})
+    finally:
+        _run_state["running"] = False
+
+
+def _run_live_job(db_id: str) -> None:
+    """Background worker: run the REAL Gemini loop for a catalog "live" database.
+
+    Builds the bundled SQLite DB, loads its hand-authored splits, and drives
+    `run_loop` with live Gemini for both candidate generation and mutation.
+    Bounded by `CRUCIBLE_MAX_ITERS` (default 3) so a hosted run can't loop
+    endlessly. Always resets the running flag, even on failure.
+    """
+    try:
+        db_path = catalog.build_db(db_id)
+        schema_ddl = catalog.get_schema(db_id)
+        train, test = catalog.get_items(db_id)
+        model = gemini_model()  # honours GEMINI_MODEL; candidate == mutation model
+        run_loop(
+            # Live catalog DBs keep the schema: their tables are unknown to the
+            # agent up front, so the schema is part of the task, not a crutch.
+            initial_spec=CandidateSpec(1, INITIAL_SYSTEM_PROMPT, enable_schema=True),
+            schema_ddl=schema_ddl,
+            train=train,
+            test=test,
+            sandbox=SqlSandbox(db_path),
+            candidate_model=model,
+            mutation_model=model,
+            introspect=introspect_failures,
+            log_experiment=log_experiment,
+            on_event=_relay_event,
+            on_item=_relay_item,
+            db_id=db_id,
+            config=_live_loop_config(),
         )
     except Exception as exc:  # noqa: BLE001 - surface failure to the UI stream.
         bus.publish({"type": "error", "message": str(exc)})
@@ -289,6 +380,9 @@ def _run_loop_job(db_id: str) -> None:
 # Pacing (seconds) between streamed demo events so the UI animates the climb
 # rather than dumping every version at once.
 _DEMO_EVENT_DELAY_S = 1.1
+# Per-question `item` events are more numerous than version events, so they get a
+# shorter delay to keep the demo lively without dragging the climb.
+_DEMO_ITEM_DELAY_S = 0.35
 
 
 def _async_log_experiment(result: Any, db_id: str) -> str:
@@ -343,6 +437,10 @@ def _run_demo_job(db_id: str) -> None:
             _relay_event(event)
             time.sleep(_DEMO_EVENT_DELAY_S)
 
+        def paced_item(event: dict[str, Any]) -> None:
+            _relay_item(event)
+            time.sleep(_DEMO_ITEM_DELAY_S)
+
         run_loop(
             initial_spec=CandidateSpec(
                 1, "You are an expert SQLite analyst. Output only SQL.",
@@ -360,6 +458,7 @@ def _run_demo_job(db_id: str) -> None:
             # the UI climb stays snappy. Returns a name instantly; never blocks.
             log_experiment=_async_log_experiment,
             on_event=paced_relay,
+            on_item=paced_item,
             db_id=db_id,
             config=LOOP_CONFIG,
         )

@@ -53,6 +53,51 @@ def test_loop_improves_and_stops_at_target(sandbox):
     assert any(e == ("event", "promoted") for e in events)
 
 
+def test_loop_threads_on_item_and_emits_new_events(sandbox):
+    """run_loop forwards on_item per scored question and emits status/phoenix/run_complete."""
+    items = [EvalItem("count", "SELECT count(*) FROM city", "world_1", "easy")]
+    model = lambda prompt: "SELECT count(*) FROM city"  # always correct -> hits target at v1
+
+    events = []
+    item_events = []
+    best, history = run_loop(
+        initial_spec=CandidateSpec(1, "x", enable_schema=True),
+        schema_ddl=SCHEMA, train=items, test=items,
+        sandbox=sandbox, candidate_model=model, mutation_model=lambda p: "{}",
+        introspect=lambda name: "", log_experiment=lambda r, d: "exp",
+        on_event=lambda e: events.append(e),
+        on_item=lambda e: item_events.append(e),
+        db_id="world_1", config=LoopConfig(max_iters=2, target=1.0, patience=2),
+    )
+
+    types = {e["type"] for e in events}
+    assert {"status", "phoenix", "version", "promoted", "run_complete"} <= types
+    # Each item event carries the contract fields.
+    assert item_events, "no item events emitted"
+    sample = item_events[0]
+    assert sample["type"] == "item"
+    assert set(sample) >= {"type", "version", "split", "question", "predicted_sql",
+                           "is_match", "error"}
+    # run_complete carries the final summary.
+    rc = next(e for e in events if e["type"] == "run_complete")
+    assert rc["db_id"] == "world_1"
+    assert rc["best_version"] == best[0].version
+
+
+def test_loop_on_item_default_none_is_backward_compatible(sandbox):
+    """Omitting on_item keeps run_loop working (existing callers unaffected)."""
+    items = [EvalItem("count", "SELECT count(*) FROM city", "world_1", "easy")]
+    model = lambda prompt: "SELECT count(*) FROM city"
+    best, history = run_loop(
+        initial_spec=CandidateSpec(1, "x"), schema_ddl=SCHEMA, train=items, test=items,
+        sandbox=sandbox, candidate_model=model, mutation_model=lambda p: "{}",
+        introspect=lambda name: "", log_experiment=lambda r, d: "exp",
+        on_event=lambda e: None, db_id="world_1",
+        config=LoopConfig(max_iters=2, target=1.0, patience=2),
+    )
+    assert best[1].score == 1.0
+
+
 def test_loop_early_stops_on_no_improvement(sandbox):
     items = [EvalItem("names", "SELECT name FROM city", "world_1", "easy")]
     model = lambda prompt: "SELECT pop FROM city"   # always wrong, never improves
