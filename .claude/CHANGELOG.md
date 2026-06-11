@@ -121,3 +121,5 @@
 ## 2026-06-12 — Hosted UI demo mode (real climb, no funded LLM)
 - Added CRUCIBLE_DEMO mode: /run streams the REAL run_loop on the bundled world DB with the offline scripted models (real SQL execution, real 50->100% scores), paced ~1.1s/event so the leaderboard animates live. Verified events stream end-to-end. UI feed pill flips to live on SSE open.
 - render.yaml: CRUCIBLE_DEMO=1 so the hosted app always shows a working climb. 65 tests green.
+## 2026-06-12 — Fact-check pitch deck climb numbers
+- slides/index.html Slide 4: corrected the climb visualization to show all four spec versions (v1 50%, v2 75%, v3 75%, v4 100%) with fix tags in the actual order (JOIN -> aggregation -> ordering), matching the real offline_demo.py run. Previously the deck collapsed the climb into v1/v2/v4 and mislabeled the per-version fix tags.
