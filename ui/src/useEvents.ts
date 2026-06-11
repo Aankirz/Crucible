@@ -69,9 +69,9 @@ export function useEvents(): {
     };
 
     es.onopen = () => {
-      // Connection up; remain "connecting" until the first event proves the
-      // stream is flowing, unless we've already seen live data.
-      if (!gotLiveEvent.current) setSource("connecting");
+      // Connection established — reflect the live backend immediately (idle until
+      // a run streams events), rather than sitting on "connecting" forever.
+      setSource("live");
     };
 
     es.onerror = () => {

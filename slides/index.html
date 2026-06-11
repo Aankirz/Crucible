@@ -1,0 +1,480 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Crucible — Self-Optimizing Text-to-SQL Agents</title>
+<style>
+  /* ---------- Design tokens ---------- */
+  :root {
+    --bg: #07080c;
+    --bg-soft: #0c0e15;
+    --surface: rgba(255,255,255,0.035);
+    --surface-2: rgba(255,255,255,0.06);
+    --line: rgba(255,255,255,0.09);
+    --text: #f4f5f8;
+    --muted: #9aa0b0;
+    --faint: #636b80;
+    --accent: #ff5a36;       /* crucible ember */
+    --accent-2: #ffb347;     /* heat highlight */
+    --good: #46d39a;
+    --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+    --maxw: 1160px;
+  }
+
+  /* Try to pull Inter, but never depend on it — system stack falls back instantly offline. */
+  @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap");
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background:
+      radial-gradient(1200px 700px at 78% -10%, rgba(255,90,54,0.16), transparent 60%),
+      radial-gradient(900px 600px at 5% 110%, rgba(255,179,71,0.08), transparent 55%),
+      var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+
+  /* ---------- Deck mechanics ---------- */
+  .deck { height: 100vh; width: 100vw; position: relative; }
+  .slide {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; justify-content: center;
+    padding: clamp(2rem, 5vw, 6rem);
+    opacity: 0; visibility: hidden;
+    transform: translateY(18px) scale(0.995);
+    transition: opacity .5s ease, transform .5s cubic-bezier(.16,1,.3,1), visibility .5s;
+    overflow-y: auto;
+  }
+  .slide.active { opacity: 1; visibility: visible; transform: none; }
+  .inner { width: 100%; max-width: var(--maxw); margin: 0 auto; }
+
+  /* ---------- Typography ---------- */
+  .eyebrow {
+    font-size: .8rem; letter-spacing: .28em; text-transform: uppercase;
+    color: var(--accent); font-weight: 700; margin-bottom: 1.4rem;
+    display: inline-flex; align-items: center; gap: .7rem;
+  }
+  .eyebrow::before { content:""; width: 28px; height: 2px; background: var(--accent); display:inline-block; }
+  h1 { font-size: clamp(3.2rem, 8.5vw, 7.5rem); line-height: .94; font-weight: 900; letter-spacing: -0.03em; }
+  h2 { font-size: clamp(2.2rem, 5.2vw, 4.2rem); line-height: 1.02; font-weight: 800; letter-spacing: -0.025em; }
+  .lead { font-size: clamp(1.25rem, 2.2vw, 1.8rem); color: var(--text); line-height: 1.4; font-weight: 500; }
+  .sub { font-size: clamp(1rem, 1.5vw, 1.2rem); color: var(--muted); line-height: 1.55; }
+  .accent { color: var(--accent); }
+  .heat { background: linear-gradient(100deg, var(--accent), var(--accent-2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .good { color: var(--good); }
+  .mono { font-family: var(--mono); }
+
+  /* ---------- Components ---------- */
+  .pill {
+    display:inline-flex; align-items:center; gap:.5rem;
+    font-size:.74rem; letter-spacing:.16em; text-transform:uppercase; font-weight:600;
+    color: var(--muted); background: var(--surface); border:1px solid var(--line);
+    padding:.45rem .8rem; border-radius:999px;
+    transition: border-color .25s ease, color .25s ease, background .25s ease;
+  }
+  .pill:hover { border-color: rgba(255,90,54,.3); color: var(--text); background: var(--surface-2); }
+  .dot { width:7px; height:7px; border-radius:50%; background: var(--accent); box-shadow:0 0 12px var(--accent); }
+
+  .grid { display:grid; gap: 1.1rem; }
+  .card {
+    background: var(--surface); border:1px solid var(--line); border-radius: 16px;
+    padding: 1.4rem 1.5rem;
+    transition: border-color .25s ease, background .25s ease, transform .25s cubic-bezier(.16,1,.3,1);
+  }
+  .card:hover {
+    border-color: rgba(255,90,54,.32);
+    background: var(--surface-2);
+    transform: translateY(-2px);
+  }
+  .card h3 { font-size: 1.05rem; font-weight: 700; margin-bottom: .5rem; }
+  .card p { color: var(--muted); font-size: .98rem; line-height: 1.5; }
+  .card .num { font-family: var(--mono); color: var(--accent); font-weight: 700; font-size: .8rem; letter-spacing:.1em; }
+
+  .figure {
+    border:1px solid var(--line); border-radius: 16px; overflow: hidden;
+    background: var(--bg-soft); box-shadow: 0 30px 80px rgba(0,0,0,.5);
+    transition: border-color .3s ease, box-shadow .3s ease, transform .3s cubic-bezier(.16,1,.3,1);
+  }
+  .figure:hover {
+    border-color: rgba(255,90,54,.28);
+    box-shadow: 0 36px 90px rgba(0,0,0,.55), 0 0 0 1px rgba(255,90,54,.08);
+    transform: translateY(-3px);
+  }
+  .figure img { display:block; width:100%; height:auto; }
+  .placeholder {
+    display:flex; align-items:center; justify-content:center; text-align:center;
+    min-height: 320px; color: var(--faint); font-family: var(--mono); font-size:.9rem;
+    border: 1px dashed var(--line); border-radius: 16px; padding: 2rem;
+    background: repeating-linear-gradient(45deg, transparent, transparent 12px, rgba(255,255,255,.02) 12px, rgba(255,255,255,.02) 24px);
+  }
+
+  /* ---------- Slide 1 ---------- */
+  .mark {
+    width: 76px; height: 76px; border-radius: 18px;
+    background: linear-gradient(150deg, var(--accent), #c8341a);
+    display:grid; place-items:center; box-shadow: 0 18px 50px rgba(255,90,54,.35);
+    margin-bottom: 2rem;
+  }
+  .mark svg { width: 40px; height: 40px; }
+
+  /* ---------- Climb / numbers ---------- */
+  .climbrow { display:flex; gap:.6rem; align-items:stretch; flex-wrap:wrap; }
+  .vbox {
+    flex:1 1 0; min-width: 110px; background: var(--surface); border:1px solid var(--line);
+    border-radius: 14px; padding: 1rem 1rem 1.1rem; position:relative; overflow:hidden;
+    transition: border-color .25s ease, transform .25s cubic-bezier(.16,1,.3,1);
+  }
+  .vbox:hover { transform: translateY(-2px); }
+  .vbox .v { font-family:var(--mono); font-size:.72rem; letter-spacing:.18em; color:var(--faint); text-transform:uppercase; }
+  .vbox .score { font-size: clamp(1.8rem,3.5vw,2.6rem); font-weight:900; letter-spacing:-.02em; margin-top:.3rem; }
+  .vbox .tag { font-size:.74rem; color:var(--muted); margin-top:.35rem; }
+  .vbox.best { border-color: rgba(70,211,154,.45); background: rgba(70,211,154,.06); }
+  .vbox .bar { position:absolute; left:0; bottom:0; height:3px; background: linear-gradient(90deg,var(--accent),var(--accent-2)); }
+  .arrowbig { font-size: clamp(2.2rem,5vw,3.4rem); font-weight:900; align-self:center; color:var(--faint); }
+
+  /* ---------- Loop diagram ---------- */
+  .loop { display:grid; grid-template-columns: repeat(5, 1fr); gap:.6rem; align-items:stretch; }
+  .step {
+    background: var(--surface); border:1px solid var(--line); border-radius:14px;
+    padding:1.1rem 1rem; position:relative;
+    transition: border-color .25s ease, background .25s ease, transform .25s cubic-bezier(.16,1,.3,1);
+  }
+  .step:hover { border-color: rgba(255,90,54,.32); background: var(--surface-2); transform: translateY(-2px); }
+  .step::after {
+    content:""; position:absolute; left:0; bottom:0; height:2px; width:0;
+    background: linear-gradient(90deg,var(--accent),var(--accent-2));
+    transition: width .35s cubic-bezier(.16,1,.3,1);
+  }
+  .step:hover::after { width:100%; }
+  .step .n { font-family:var(--mono); color:var(--accent); font-size:.78rem; font-weight:700; }
+  .step h4 { font-size: 1rem; margin:.45rem 0 .35rem; font-weight:700; }
+  .step p { font-size:.82rem; color:var(--muted); line-height:1.45; }
+  .loopnote { margin-top:1.2rem; font-family:var(--mono); font-size:.82rem; color:var(--muted); }
+  .loopnote .accent { font-weight:700; }
+
+  /* ---------- Architecture ---------- */
+  .arch { display:flex; flex-direction:column; gap:.7rem; }
+  .layer {
+    display:flex; align-items:center; gap:1.2rem;
+    background: var(--surface); border:1px solid var(--line); border-radius:14px;
+    padding:1rem 1.3rem;
+    transition: border-color .25s ease, background .25s ease, transform .25s cubic-bezier(.16,1,.3,1);
+  }
+  .layer:hover { border-color: rgba(255,90,54,.3); background: var(--surface-2); transform: translateX(4px); }
+  .layer .ln { font-family:var(--mono); color:var(--accent); font-weight:700; font-size:.9rem; width:2.2rem; flex:none; }
+  .layer .lt { font-weight:700; font-size:1.02rem; width: clamp(150px, 22vw, 250px); flex:none; }
+  .layer .ld { color:var(--muted); font-size:.9rem; line-height:1.4; }
+  .layer.hl { border-color: rgba(255,90,54,.4); background: rgba(255,90,54,.06); }
+
+  /* ---------- footer / progress ---------- */
+  .hud {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    display:flex; align-items:center; justify-content:space-between;
+    padding: .9rem clamp(1.5rem,5vw,3.5rem);
+    font-family: var(--mono); font-size:.72rem; color: var(--faint);
+    letter-spacing:.12em; text-transform:uppercase; z-index: 20;
+    pointer-events:none;
+  }
+  .hud .brand { color: var(--muted); font-weight:600; }
+  .progress { position:fixed; top:0; left:0; height:3px; background:linear-gradient(90deg,var(--accent),var(--accent-2)); z-index:30; transition: width .4s ease; }
+  .dots { display:flex; gap:.5rem; pointer-events:auto; }
+  .dots button { width:8px; height:8px; border-radius:50%; border:none; background:var(--line); cursor:pointer; padding:0; transition: all .25s; }
+  .dots button:hover { background: var(--muted); transform: scale(1.2); }
+  .dots button.on { background: var(--accent); transform: scale(1.3); box-shadow: 0 0 10px rgba(255,90,54,.5); }
+  .dots button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+  .links a { color: var(--accent); text-decoration:none; border-bottom:1px solid rgba(255,90,54,.35); }
+  .links a:hover { color: var(--accent-2); }
+
+  .two { display:grid; grid-template-columns: 1fr 1fr; gap: 2.2rem; align-items:center; }
+  @media (max-width: 880px) {
+    .two { grid-template-columns: 1fr; gap:1.4rem; }
+    .loop { grid-template-columns: 1fr 1fr; }
+    .loop .step:last-child { grid-column: 1 / -1; }
+    .layer { flex-wrap:wrap; gap:.4rem; }
+    .layer .lt { width:auto; }
+    .hud .center { display:none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .slide { transition: opacity .2s ease; transform: none; }
+    .card:hover, .step:hover, .layer:hover, .vbox:hover, .figure:hover { transform: none; }
+    * { scroll-behavior: auto; }
+  }
+  .mt1{margin-top:1rem}.mt2{margin-top:1.6rem}.mt3{margin-top:2.4rem}
+  .stack{display:flex;flex-direction:column;gap:1rem}
+  .row{display:flex;gap:.6rem;flex-wrap:wrap}
+</style>
+</head>
+<body>
+<div class="progress" id="progress"></div>
+<div class="deck" id="deck">
+
+  <!-- 1. TITLE -->
+  <section class="slide active">
+    <div class="inner">
+      <div class="mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2v6M12 22a7 7 0 0 0 7-7c0-3-2-5-3-7-1 2-2 2-4 2s-3 0-4-2c-1 2-3 4-3 7a7 7 0 0 0 7 7z"/>
+        </svg>
+      </div>
+      <div class="eyebrow">Google Cloud · Rapid Agent Hackathon — Arize Track</div>
+      <h1>Crucible</h1>
+      <p class="lead mt3" style="max-width:900px;">
+        Builds and self-optimizes <span class="heat">text-to-SQL agents</span>.<br>
+        One database in &rarr; one tuned, measured agent out.
+      </p>
+      <div class="row mt3">
+        <span class="pill"><span class="dot"></span> Gemini 3 reasoning</span>
+        <span class="pill"><span class="dot"></span> Arize Phoenix tracing + MCP</span>
+        <span class="pill"><span class="dot"></span> Real SQL · real gold · held-out test</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. PROBLEM -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow">The Problem</div>
+      <h2>Building a good text-to-SQL agent<br>is <span class="accent">guesswork</span>.</h2>
+      <div class="grid mt3" style="grid-template-columns:repeat(3,1fr);">
+        <div class="card">
+          <h3>Tweak &amp; pray</h3>
+          <p>Nudge a prompt, swap a few-shot, hope it generalizes. No signal on whether it actually got better.</p>
+        </div>
+        <div class="card">
+          <h3>No measurement</h3>
+          <p>"Looks right" is not a metric. Without execution against gold SQL, you're flying blind.</p>
+        </div>
+        <div class="card">
+          <h3>No systematic path</h3>
+          <p>No way to find the dominant failure, fix it, and prove the fix held on data you didn't tune on.</p>
+        </div>
+      </div>
+      <p class="sub mt3">The result: brittle agents, no leaderboard, no discipline — just vibes.</p>
+    </div>
+  </section>
+
+  <!-- 3. SOLUTION / LOOP -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow">The Solution</div>
+      <h2>The agent <span class="heat">observes and improves itself</span>.</h2>
+      <p class="sub mt1" style="max-width:820px;">Given a database, Crucible drafts a candidate agent, scores it on real SQL, reads its own failing traces, and mutates — climbing a leaderboard until it clears the bar.</p>
+      <div class="loop mt3">
+        <div class="step"><div class="n">01</div><h4>Draft</h4><p>Generate a candidate text-to-SQL agent for the database.</p></div>
+        <div class="step"><div class="n">02</div><h4>Score</h4><p>Execution-match vs human gold SQL on a held-out test split.</p></div>
+        <div class="step"><div class="n">03</div><h4>Introspect</h4><p>Read its OWN failing traces via the Phoenix MCP server.</p></div>
+        <div class="step"><div class="n">04</div><h4>Hypothesize</h4><p>Form ONE atomic hypothesis about the dominant failure.</p></div>
+        <div class="step"><div class="n">05</div><h4>Mutate</h4><p>Edit prompt / few-shots, re-score, keep best-so-far.</p></div>
+      </div>
+      <p class="loopnote">Discipline: <span class="accent">accept a mutation only if it helps TRAIN</span> · report on a HELD-OUT test it never optimized against · early-stop on patience. Real ML hygiene, not prompt-fiddling.</p>
+    </div>
+  </section>
+
+  <!-- 4. RESULT -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow">The Real Result — measured, not estimated</div>
+      <h2>Held-out test score: <span class="good">50% &rarr; 100%</span></h2>
+      <p class="sub mt1">3 accepted mutations. Each score is real SQL executed against a real SQLite DB, compared to gold.</p>
+      <div class="two mt3">
+        <div>
+          <div class="climbrow">
+            <div class="vbox"><div class="v">v1</div><div class="score">50%</div><div class="tag">fix: JOIN</div><div class="bar" style="width:50%"></div></div>
+            <div class="arrowbig">&rarr;</div>
+            <div class="vbox"><div class="v">v2</div><div class="score">75%</div><div class="tag">fix: aggregation</div><div class="bar" style="width:75%"></div></div>
+            <div class="arrowbig">&rarr;</div>
+            <div class="vbox best"><div class="v good">v4 · best</div><div class="score good">100%</div><div class="tag">fix: ordering</div><div class="bar" style="width:100%;background:var(--good)"></div></div>
+          </div>
+          <div class="grid mt2" style="grid-template-columns:1fr 1fr;">
+            <div class="card"><div class="num">FAILURE CLUSTERS, IN ORDER</div><p style="margin-top:.5rem;color:var(--text)">JOIN &rarr; aggregation &rarr; ordering</p></div>
+            <div class="card"><div class="num">ACCEPTED MUTATIONS</div><p style="margin-top:.5rem;color:var(--text)">3 · target bar 90% · cleared</p></div>
+          </div>
+        </div>
+        <figure class="figure">
+          <img src="assets/climb.png" alt="Terminal leaderboard showing the climb from 50% to 100% test score over v1 to v4" />
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5. ARIZE PHOENIX + MCP -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow">Arize Phoenix — the partner hook</div>
+      <h2>It reads <span class="heat">its own traces</span><br>to decide its next fix.</h2>
+      <div class="grid mt3" style="grid-template-columns:repeat(3,1fr);">
+        <div class="card">
+          <div class="num">01 · TRACE</div>
+          <h3 class="mt1">Every run, observed</h3>
+          <p>Phoenix captures each scored experiment — inputs, generated SQL, gold, pass/fail.</p>
+        </div>
+        <div class="card">
+          <div class="num">02 · EXPERIMENT</div>
+          <h3 class="mt1">Scored, not guessed</h3>
+          <p>Runs land as Phoenix experiments with real execution-match scores per item.</p>
+        </div>
+        <div class="card hl-card" style="border-color:rgba(255,90,54,.4);background:rgba(255,90,54,.06)">
+          <div class="num">03 · MCP INTROSPECTION</div>
+          <h3 class="mt1">Self-diagnosis</h3>
+          <p>A Gemini agent reads its <em>own</em> failing experiment back out through the Phoenix <strong>MCP server</strong> — driving the next mutation.</p>
+        </div>
+      </div>
+      <p class="sub mt3" style="max-width:840px;">
+        This closes the loop: <span class="accent">Gemini 3 reasons, Phoenix remembers</span>, and the MCP server lets the agent introspect on its own evidence instead of a human eyeballing logs.
+      </p>
+    </div>
+  </section>
+
+  <!-- 6. ARCHITECTURE -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow">Architecture</div>
+      <h2>Five layers, one climb.</h2>
+      <div class="arch mt3">
+        <div class="layer">
+          <div class="ln">L1</div>
+          <div class="lt">Eval substrate</div>
+          <div class="ld">Read-only SQLite sandbox + execution-match comparator — multiset rows, order-sensitive only on top-level ORDER BY, numeric-tolerant, NULL-aware.</div>
+        </div>
+        <div class="layer">
+          <div class="ln">L2</div>
+          <div class="lt">Reflexive loop</div>
+          <div class="ld">Score &rarr; accept-if-helps-train &rarr; keep best-so-far &rarr; early-stop on patience.</div>
+        </div>
+        <div class="layer">
+          <div class="ln">L3</div>
+          <div class="lt">Mutation engine</div>
+          <div class="ld">Classify failure cluster &rarr; one atomic hypothesis &rarr; mutate prompt / few-shots.</div>
+        </div>
+        <div class="layer hl">
+          <div class="ln">L4</div>
+          <div class="lt">Phoenix + MCP</div>
+          <div class="ld">Tracing · scored experiments · MCP self-introspection (the agent reads its own failures).</div>
+        </div>
+        <div class="layer">
+          <div class="ln">L5</div>
+          <div class="lt">Mission Control</div>
+          <div class="ld">FastAPI + React UI streaming the climb live via SSE.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7. LIVE PRODUCT -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow">The Live Product</div>
+      <h2>Mission Control — <span class="heat">watch it climb</span>.</h2>
+      <div class="two mt3">
+        <figure class="figure">
+          <img src="assets/ui.png" alt="Crucible Mission Control UI: hypothesis panel, leaderboard, and run controls" />
+        </figure>
+        <div class="stack">
+          <div class="card">
+            <h3>Self-improving, on screen</h3>
+            <p>Current hypothesis, live leaderboard of accepted spec versions, and held-out test score per version — streamed via SSE.</p>
+          </div>
+          <div class="card">
+            <h3>Run it yourself</h3>
+            <p class="links" style="font-family:var(--mono);font-size:.92rem;line-height:1.9;">
+              Hosted &nbsp;<a href="https://crucible-api-md84.onrender.com" target="_blank" rel="noopener">crucible-api-md84.onrender.com</a><br>
+              Repo &nbsp;&nbsp;&nbsp;<a href="https://github.com/Aankirz/Crucible" target="_blank" rel="noopener">github.com/Aankirz/Crucible</a>
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 8. CLOSE -->
+  <section class="slide">
+    <div class="inner" style="text-align:center;">
+      <div class="mark" style="margin:0 auto 2rem;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2v6M12 22a7 7 0 0 0 7-7c0-3-2-5-3-7-1 2-2 2-4 2s-3 0-4-2c-1 2-3 4-3 7a7 7 0 0 0 7 7z"/>
+        </svg>
+      </div>
+      <h1 style="font-size:clamp(2.6rem,6vw,5rem)">One DB in.<br><span class="heat">A tuned agent out.</span></h1>
+      <p class="lead mt3" style="max-width:760px;margin-left:auto;margin-right:auto;">
+        Crucible turns text-to-SQL from guesswork into a measured climb — and the agent does the climbing itself.
+      </p>
+      <div class="row mt3" style="justify-content:center;">
+        <span class="pill"><span class="dot"></span> 50% &rarr; 100% held-out</span>
+        <span class="pill"><span class="dot"></span> 3 mutations · join · agg · order</span>
+        <span class="pill"><span class="dot"></span> Gemini 3 + Arize Phoenix MCP</span>
+      </div>
+      <p class="links mt3 mono" style="font-size:.95rem;">
+        <a href="https://crucible-api-md84.onrender.com" target="_blank" rel="noopener">Live demo</a>
+        &nbsp;·&nbsp;
+        <a href="https://github.com/Aankirz/Crucible" target="_blank" rel="noopener">Source</a>
+      </p>
+    </div>
+  </section>
+
+</div>
+
+<div class="hud">
+  <span class="brand">Crucible</span>
+  <span class="center">Self-improving text-to-SQL · Arize track</span>
+  <span class="dots" id="dots"></span>
+</div>
+
+<script>
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const dotsWrap = document.getElementById('dots');
+  const progress = document.getElementById('progress');
+  let i = 0;
+
+  slides.forEach((_, n) => {
+    const b = document.createElement('button');
+    b.setAttribute('aria-label', 'Go to slide ' + (n + 1));
+    b.addEventListener('click', () => go(n));
+    dotsWrap.appendChild(b);
+  });
+  const dots = Array.from(dotsWrap.children);
+
+  function go(n) {
+    i = Math.max(0, Math.min(slides.length - 1, n));
+    slides.forEach((s, k) => s.classList.toggle('active', k === i));
+    dots.forEach((d, k) => d.classList.toggle('on', k === i));
+    progress.style.width = ((i + 1) / slides.length * 100) + '%';
+  }
+  function next() { go(i + 1); }
+  function prev() { go(i - 1); }
+
+  document.addEventListener('keydown', (e) => {
+    if (['ArrowRight','ArrowDown','PageDown',' '].includes(e.key)) { e.preventDefault(); next(); }
+    else if (['ArrowLeft','ArrowUp','PageUp'].includes(e.key)) { e.preventDefault(); prev(); }
+    else if (e.key === 'Home') go(0);
+    else if (e.key === 'End') go(slides.length - 1);
+  });
+
+  let wheelLock = false;
+  document.addEventListener('wheel', (e) => {
+    if (wheelLock) return;
+    const target = e.currentTarget;
+    if (Math.abs(e.deltaY) < 24) return;
+    wheelLock = true;
+    setTimeout(() => wheelLock = false, 700);
+    e.deltaY > 0 ? next() : prev();
+  }, { passive: true });
+
+  let sx = 0, sy = 0;
+  document.addEventListener('touchstart', e => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, {passive:true});
+  document.addEventListener('touchend', e => {
+    const dx = e.changedTouches[0].clientX - sx;
+    const dy = e.changedTouches[0].clientY - sy;
+    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 50) (dx < 0 ? next() : prev());
+    else if (Math.abs(dy) > 50) (dy < 0 ? next() : prev());
+  }, {passive:true});
+
+  go(0);
+</script>
+</body>
+</html>

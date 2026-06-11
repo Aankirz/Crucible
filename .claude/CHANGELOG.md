@@ -114,3 +114,10 @@
 - Dockerfile is now multi-stage: stage 1 builds the UI (VITE_API_URL="" -> same-origin), stage 2 runs FastAPI serving both. One Render service = whole app.
 - models.py: multi-key rotation via GOOGLE_API_KEYS (pool free-tier 20/day across projects; rotate on 429/503).
 - render.yaml: GEMINI_MODEL -> gemini-3-flash-preview (free-tier safe), GOOGLE_API_KEYS option. 65 tests green.
+
+## 2026-06-12 — Pitch deck visual polish
+- slides/index.html: added hover/active states (card, step, layer, vbox, figure, pill), dot focus-visible a11y outline, reduced-motion support, and fixed orphaned 5th loop step on mobile. CSS-only, inline, offline-safe. No behavior or numbers changed.
+
+## 2026-06-12 — Hosted UI demo mode (real climb, no funded LLM)
+- Added CRUCIBLE_DEMO mode: /run streams the REAL run_loop on the bundled world DB with the offline scripted models (real SQL execution, real 50->100% scores), paced ~1.1s/event so the leaderboard animates live. Verified events stream end-to-end. UI feed pill flips to live on SSE open.
+- render.yaml: CRUCIBLE_DEMO=1 so the hosted app always shows a working climb. 65 tests green.

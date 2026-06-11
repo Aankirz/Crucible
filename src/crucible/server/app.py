@@ -21,6 +21,7 @@ import json
 import os
 import sqlite3
 import threading
+import time
 from typing import Any, AsyncIterator
 
 from dotenv import load_dotenv
@@ -187,14 +188,28 @@ def run(db_id: str = DEFAULT_DB_ID, autopilot: bool = True) -> dict[str, Any]:
     _run_state["running"] = True
     _approval_gate.clear()
 
+    target = _run_demo_job if _demo_mode() else _run_loop_job
     thread = threading.Thread(
-        target=_run_loop_job,
+        target=target,
         args=(db_id,),
         name=f"crucible-loop-{db_id}",
         daemon=True,
     )
     thread.start()
     return {"started": True, "db_id": db_id, "autopilot": autopilot}
+
+
+def _demo_mode() -> bool:
+    """True when CRUCIBLE_DEMO is set: /run streams the deterministic climb.
+
+    Demo mode runs the REAL optimization loop (real SQL, real execution-match
+    scores) with a deterministic model standing in for Gemini, so the hosted UI
+    shows a genuine 50%->100% climb without a funded LLM. Not replay: every score
+    is produced by executing SQL against the database during the run.
+    """
+    return (os.environ.get("CRUCIBLE_DEMO") or "").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
 
 
 def _relay_event(event: dict[str, Any]) -> None:
@@ -262,6 +277,66 @@ def _run_loop_job(db_id: str) -> None:
             introspect=introspect_failures,
             log_experiment=log_experiment,
             on_event=_relay_event,
+            db_id=db_id,
+            config=LOOP_CONFIG,
+        )
+    except Exception as exc:  # noqa: BLE001 - surface failure to the UI stream.
+        bus.publish({"type": "error", "message": str(exc)})
+    finally:
+        _run_state["running"] = False
+
+
+# Pacing (seconds) between streamed demo events so the UI animates the climb
+# rather than dumping every version at once.
+_DEMO_EVENT_DELAY_S = 1.1
+
+
+def _run_demo_job(db_id: str) -> None:
+    """Background worker: stream the REAL optimization loop, paced for the UI.
+
+    Demo mode runs `crucible.orchestrator.run_loop` on the bundled world DB with
+    the deterministic scripted models from `scripts/offline_demo.py`. Every score
+    is produced by executing SQL against the real database — this is the genuine
+    50%->100% climb, not a replay — but it needs no funded LLM, so the hosted UI
+    always shows a working run. A small delay paces each event for the leaderboard.
+    """
+    try:
+        import sys
+        from pathlib import Path
+
+        scripts_dir = Path(__file__).resolve().parents[3] / "scripts"
+        if str(scripts_dir) not in sys.path:
+            sys.path.insert(0, str(scripts_dir))
+
+        # Reuse the offline demo's real DB builder + scripted (no-API) models.
+        import offline_demo as demo  # type: ignore
+
+        import tempfile
+
+        tmp = tempfile.mkdtemp(prefix="crucible_demo_")
+        db_path = str(Path(tmp) / "world.sqlite")
+        demo.build_database(Path(db_path))
+
+        def paced_relay(event: dict[str, Any]) -> None:
+            _relay_event(event)
+            time.sleep(_DEMO_EVENT_DELAY_S)
+
+        run_loop(
+            initial_spec=CandidateSpec(
+                1, "You are an expert SQLite analyst. Output only SQL.",
+                enable_schema=True,
+            ),
+            schema_ddl=demo.SCHEMA_DDL,
+            train=demo.TRAIN,
+            test=demo.TEST,
+            sandbox=SqlSandbox(db_path),
+            candidate_model=demo.make_candidate_model(),
+            mutation_model=demo.make_mutation_model(),
+            introspect=demo.introspect,
+            # Fast local stub (no network) so the UI climb is snappy and never
+            # blocks on Phoenix; real Phoenix logging is used by the live job.
+            log_experiment=demo.log_experiment,
+            on_event=paced_relay,
             db_id=db_id,
             config=LOOP_CONFIG,
         )
