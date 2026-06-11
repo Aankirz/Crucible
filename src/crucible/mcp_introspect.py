@@ -54,11 +54,30 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 
 # Default model + project. Overridable via env so the spike can swap them without
 # code changes.
 _DEFAULT_MODEL = "gemini-3-pro"
 _DEFAULT_PROJECT = "crucible"
+
+# The introspection agent makes several sequential model calls, so a single
+# transient 503/overload anywhere kills the whole turn. Retry the turn a few
+# times with backoff before falling back to the deterministic classifier.
+_MAX_INTROSPECT_ATTEMPTS = 3
+_INTROSPECT_BACKOFF_S = 6.0
+# Substrings that mark a transient, worth-retrying failure (vs. a terminal one
+# like missing credentials, which should fail fast to the fallback).
+_TRANSIENT_MARKERS = (
+    "503", "UNAVAILABLE", "overloaded", "high demand",
+    "RESOURCE_EXHAUSTED", "429", "deadline", "timeout",
+)
+
+
+def _is_transient(error: Exception) -> bool:
+    """True when an introspection error looks worth retrying."""
+    text = f"{type(error).__name__}: {error}".lower()
+    return any(marker.lower() in text for marker in _TRANSIENT_MARKERS)
 
 # ADK requires non-empty user/session/app identifiers for the in-memory runner.
 _APP_NAME = "crucible_introspect"
@@ -244,18 +263,30 @@ def introspect_failures(experiment_name: str) -> str:
         the orchestrator can fall back to its deterministic classifier. The
         try/except fallback is intentional and required.
     """
-    try:
-        project_name = os.getenv("PHOENIX_PROJECT_NAME", _DEFAULT_PROJECT)
-        model = os.getenv("GEMINI_MODEL", _DEFAULT_MODEL)
+    project_name = os.getenv("PHOENIX_PROJECT_NAME", _DEFAULT_PROJECT)
+    model = os.getenv("GEMINI_MODEL", _DEFAULT_MODEL)
 
-        # ``asyncio.run`` creates and tears down a fresh event loop. This must not
-        # be called from inside a running loop; the orchestrator invokes this from
-        # synchronous code, which is the intended usage.
-        return asyncio.run(
-            _run_introspection_async(experiment_name, project_name, model)
-        )
-    except Exception:
-        # Deliberate broad catch: missing deps, bad creds, MCP connection failure,
-        # model error, or being called inside an existing event loop all degrade
-        # gracefully to the deterministic classifier path.
-        return ""
+    for attempt in range(_MAX_INTROSPECT_ATTEMPTS):
+        try:
+            # ``asyncio.run`` creates and tears down a fresh event loop. This must
+            # not be called from inside a running loop; the orchestrator invokes
+            # this from synchronous code, which is the intended usage.
+            summary = asyncio.run(
+                _run_introspection_async(experiment_name, project_name, model)
+            )
+            if summary:
+                return summary
+            # Empty (but no exception) usually means a transient model hiccup
+            # swallowed downstream; retry a couple of times before giving up.
+            if attempt < _MAX_INTROSPECT_ATTEMPTS - 1:
+                time.sleep(_INTROSPECT_BACKOFF_S * (attempt + 1))
+                continue
+            return ""
+        except Exception as exc:  # noqa: BLE001 - graceful fallback is required.
+            # Retry transient failures (503/overload/rate-limit); fail fast on
+            # terminal ones (missing deps/creds, called inside a running loop).
+            if _is_transient(exc) and attempt < _MAX_INTROSPECT_ATTEMPTS - 1:
+                time.sleep(_INTROSPECT_BACKOFF_S * (attempt + 1))
+                continue
+            return ""
+    return ""

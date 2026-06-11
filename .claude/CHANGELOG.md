@@ -123,3 +123,6 @@
 - render.yaml: CRUCIBLE_DEMO=1 so the hosted app always shows a working climb. 65 tests green.
 ## 2026-06-12 — Fact-check pitch deck climb numbers
 - slides/index.html Slide 4: corrected the climb visualization to show all four spec versions (v1 50%, v2 75%, v3 75%, v4 100%) with fix tags in the actual order (JOIN -> aggregation -> ordering), matching the real offline_demo.py run. Previously the deck collapsed the climb into v1/v2/v4 and mislabeled the per-version fix tags.
+
+## 2026-06-12 — Harden live MCP introspection (retry transient 503s)
+- mcp_introspect.introspect_failures now retries transient failures (503/overload/429) up to 3x with backoff before falling back to the deterministic classifier; fails fast on terminal errors (missing creds). Added _is_transient helper. +5 tests (test_mcp_introspect.py). 70 tests green.
