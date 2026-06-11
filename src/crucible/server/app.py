@@ -30,6 +30,11 @@ from sse_starlette.sse import EventSourceResponse
 
 from crucible.datasets.spider_loader import load_spider_dev
 from crucible.datasets.split import stratified_split, weighted_sample
+from crucible.datasets.world_bundle import (
+    WORLD_TEST,
+    WORLD_TRAIN,
+    build_world_db,
+)
 from crucible.models import gemini_model
 from crucible.mcp_introspect import introspect_failures
 from crucible.orchestrator import LoopConfig, run_loop
@@ -89,6 +94,17 @@ app.add_middleware(
 # Single in-process event bus shared by the loop thread and all SSE clients.
 bus = EventBus()
 
+# Path to the self-contained "world" database, built at startup when no external
+# Spider/BIRD data is configured (the hosted-demo case). Lets the server run the
+# REAL loop on a real DB with real gold SQL without a license-bound download.
+_bundled_db_path: str | None = None
+
+
+def _spider_configured() -> bool:
+    """True when a real Spider dev file is configured and present on disk."""
+    spider_dev = os.environ.get("CRUCIBLE_SPIDER_DEV")
+    return bool(spider_dev) and os.path.exists(spider_dev)
+
 # Human-approval gate. `event` is released by POST /approve; `autopilot` toggles
 # whether the loop thread blocks on it before relaying the final `promoted`.
 _approval_gate = threading.Event()
@@ -104,10 +120,32 @@ def _startup() -> None:
     """
     # Bind the running loop so the worker thread can publish events thread-safely.
     bus.bind_loop(asyncio.get_running_loop())
+
+    # When no external Spider/BIRD data is configured, build the self-contained
+    # world DB so /run can execute the real loop on real data out of the box.
+    global _bundled_db_path
+    if not _spider_configured():
+        try:
+            _bundled_db_path = build_world_db()
+            print(f"[crucible] bundled world DB ready at {_bundled_db_path}")
+        except Exception as exc:  # noqa: BLE001 - never block boot on data setup.
+            print(f"[crucible] bundled world DB unavailable: {exc}")
+
     try:
         init_tracing()
     except Exception as exc:  # noqa: BLE001 - boot must not depend on Phoenix.
         print(f"[crucible] tracing disabled: {exc}")
+
+
+@app.get("/healthz")
+def healthz() -> dict[str, Any]:
+    """Liveness probe + a tiny status payload for the host's health check."""
+    return {
+        "ok": True,
+        "service": "crucible-mission-control",
+        "dataset": "spider" if _spider_configured() else "world",
+        "running": _run_state["running"],
+    }
 
 
 @app.get("/events")
@@ -174,9 +212,15 @@ def _relay_event(event: dict[str, Any]) -> None:
 def _build_splits(db_id: str) -> tuple[list, list]:
     """Load the dataset for `db_id` and build train/test splits.
 
+    Falls back to the self-contained bundled "world" benchmark when no Spider dev
+    file is configured (the hosted-demo case), so the server runs the real loop on
+    real data without an external download.
+
     Returns:
         A `(train, test)` tuple of `EvalItem` lists.
     """
+    if not _spider_configured():
+        return list(WORLD_TRAIN), list(WORLD_TEST)
     spider_dev = os.environ["CRUCIBLE_SPIDER_DEV"]
     items = load_spider_dev(spider_dev, db_id=db_id)
     pool = weighted_sample(items, n=SAMPLE_SIZE, seed=SAMPLE_SEED)
@@ -191,13 +235,23 @@ def _run_loop_job(db_id: str) -> None:
     running flag, even on failure, so subsequent runs can start.
     """
     try:
-        db_path = os.environ["CRUCIBLE_DB_PATH"]
+        # In bundled-world mode, use the DB built at startup; otherwise the
+        # configured Spider/BIRD database path.
+        world_mode = not _spider_configured()
+        db_path = (
+            _bundled_db_path
+            if world_mode and _bundled_db_path
+            else os.environ["CRUCIBLE_DB_PATH"]
+        )
         schema_ddl = read_schema(db_path)
         train, test = _build_splits(db_id)
         model = gemini_model()  # honours GEMINI_MODEL; candidate == mutation model
         run_loop(
+            # World mode starts WITHOUT the schema so the agent must earn it from
+            # its own failures — an honest climb. File-backed datasets keep the
+            # schema since their tables are unknown to the agent up front.
             initial_spec=CandidateSpec(
-                1, INITIAL_SYSTEM_PROMPT, enable_schema=True
+                1, INITIAL_SYSTEM_PROMPT, enable_schema=not world_mode
             ),
             schema_ddl=schema_ddl,
             train=train,

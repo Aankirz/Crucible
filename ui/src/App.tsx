@@ -1,42 +1,26 @@
-import { useMemo, useState } from "react";
-import { useEvents, type LoopEvent } from "./useEvents";
+import { useEvents, API_BASE, type LoopEvent } from "./useEvents";
 import { Leaderboard } from "./components/Leaderboard";
 import { HypothesisCard } from "./components/HypothesisCard";
 import "./styles.css";
 
-const API = "http://localhost:8000";
-
 export default function App() {
-  // Force the mock run via ?demo=1, or via the in-UI toggle.
-  const initialDemo = useMemo(
-    () => new URLSearchParams(window.location.search).has("demo"),
-    []
-  );
-  const [forceMock, setForceMock] = useState(initialDemo);
-
-  const { events, source, replayMock } = useEvents(forceMock);
+  const { events, source } = useEvents();
 
   const promoted = events.find(
     (e): e is Extract<LoopEvent, { type: "promoted" }> => e.type === "promoted"
   );
 
-  const isMock = source === "mock";
-
   const start = (autopilot: boolean) =>
-    fetch(`${API}/run?autopilot=${autopilot}`, { method: "POST" }).catch(() => {
-      /* offline demo: the mock feed is already running, nothing to surface */
-    });
+    fetch(`${API_BASE}/run?autopilot=${autopilot}`, { method: "POST" }).catch(
+      () => {
+        /* backend unreachable; the feed pill already reflects the error state */
+      }
+    );
 
   const approve = () =>
-    fetch(`${API}/approve`, { method: "POST" }).catch(() => {});
+    fetch(`${API_BASE}/approve`, { method: "POST" }).catch(() => {});
 
-  const onRun = (autopilot: boolean) => {
-    if (isMock) {
-      replayMock();
-    } else {
-      void start(autopilot);
-    }
-  };
+  const onRun = (autopilot: boolean) => void start(autopilot);
 
   return (
     <div className="shell">
@@ -59,7 +43,7 @@ export default function App() {
             <span className="feed-dot" aria-hidden="true" />
             {source === "connecting" && "Connecting…"}
             {source === "live" && "Live feed"}
-            {source === "mock" && "Demo feed"}
+            {source === "error" && "Backend waking…"}
           </div>
         </header>
 
@@ -69,7 +53,7 @@ export default function App() {
             className="btn btn-primary"
             onClick={() => onRun(true)}
           >
-            {isMock ? "Replay demo run" : "Run (autopilot)"}
+            Run (autopilot)
           </button>
           <button
             type="button"
@@ -81,14 +65,6 @@ export default function App() {
           <button type="button" className="btn" onClick={approve}>
             Approve / Promote
           </button>
-          <label className="mock-toggle">
-            <input
-              type="checkbox"
-              checked={forceMock}
-              onChange={(e) => setForceMock(e.target.checked)}
-            />
-            <span>Force demo</span>
-          </label>
         </div>
 
         <div className="grid">

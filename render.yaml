@@ -1,0 +1,38 @@
+# Render Blueprint for the Crucible Mission Control backend.
+#
+# Deploys the FastAPI loop server as a Docker web service. With no Spider/BIRD
+# data configured, the server runs the REAL loop on the bundled "world" database
+# (real schema + human-authored gold SQL), driven by live Gemini 3 and tracing to
+# Arize Phoenix. The frontend is deployed separately (Vercel) and points at this
+# service's URL via VITE_API_URL.
+services:
+  - type: web
+    name: crucible-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      # --- Model ---------------------------------------------------------------
+      - key: GEMINI_MODEL
+        # With billing enabled you can use the stronger gemini-3-pro-preview.
+        value: gemini-3-pro-preview
+
+      # --- Gemini credentials (set ONE path in the Render dashboard) -----------
+      # Path A (simplest on a server): a billing-enabled AI Studio API key.
+      - key: GOOGLE_API_KEY
+        sync: false
+      # Path B (Vertex AI): uncomment these in the dashboard instead of GOOGLE_API_KEY.
+      #   GOOGLE_GENAI_USE_VERTEXAI = true
+      #   GOOGLE_CLOUD_PROJECT      = <your-project-id>
+      #   GOOGLE_CLOUD_LOCATION     = us-central1
+      #   GOOGLE_APPLICATION_CREDENTIALS = /etc/secrets/sa.json   (upload as a Secret File)
+
+      # --- Arize Phoenix -------------------------------------------------------
+      - key: PHOENIX_PROJECT_NAME
+        value: crucible
+      - key: PHOENIX_API_KEY
+        sync: false
+      - key: PHOENIX_COLLECTOR_ENDPOINT
+        sync: false

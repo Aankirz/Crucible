@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /**
  * FROZEN event contract — must match src/crucible/server/events.py exactly.
@@ -8,102 +8,46 @@ export type LoopEvent =
   | { type: "version"; version: number; train: number; test: number }
   | { type: "hypothesis"; category: string; mcp_summary: string }
   | { type: "rejected"; version: number }
-  | { type: "promoted"; version: number; test: number };
-
-const SSE_URL = "http://localhost:8000/events";
-
-/** How the event feed is currently sourced. */
-export type FeedSource = "connecting" | "live" | "mock";
+  | { type: "promoted"; version: number; test: number }
+  | { type: "error"; message: string };
 
 /**
- * A realistic climbing run used when no backend is present, or when the demo
- * mode is forced. Mirrors the contract ordering: version -> hypothesis ->
- * (rejected) -> version ... -> promoted.
+ * Backend base URL. Set VITE_API_URL at build time (e.g. the Render service URL)
+ * for the deployed UI; falls back to the local dev server otherwise. No mock or
+ * replay path — the UI reflects only the real live backend.
  */
-const MOCK_SCRIPT: { delay: number; event: LoopEvent }[] = [
-  {
-    delay: 600,
-    event: {
-      type: "hypothesis",
-      category: "join",
-      mcp_summary:
-        "Phoenix MCP traces show 6/12 failures stem from missing JOINs across foreign keys. Baseline ignores relational structure.",
-    },
-  },
-  { delay: 1100, event: { type: "version", version: 1, train: 0.61, test: 0.58 } },
-  {
-    delay: 1100,
-    event: {
-      type: "hypothesis",
-      category: "aggregation",
-      mcp_summary:
-        "Remaining errors cluster on GROUP BY / HAVING. Adding aggregation few-shot exemplars to the prompt.",
-    },
-  },
-  { delay: 1100, event: { type: "version", version: 2, train: 0.74, test: 0.71 } },
-  { delay: 900, event: { type: "rejected", version: 3 } },
-  {
-    delay: 1000,
-    event: {
-      type: "hypothesis",
-      category: "subquery",
-      mcp_summary:
-        "Reverted the over-fit schema dump. Correlated subqueries are the last failing cluster — injecting a targeted decomposition rule.",
-    },
-  },
-  { delay: 1200, event: { type: "version", version: 4, train: 0.91, test: 0.88 } },
-  { delay: 900, event: { type: "promoted", version: 4, test: 0.88 } },
-];
+export const API_BASE: string =
+  (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ??
+  "http://localhost:8000";
+
+const SSE_URL = `${API_BASE}/events`;
+
+/** How the event feed is currently sourced. */
+export type FeedSource = "connecting" | "live" | "error";
 
 /**
  * Subscribes to the live SSE feed and accumulates typed events.
  *
- * Resolution order:
- *   1. Default to live SSE at {@link SSE_URL}.
- *   2. If the connection errors before any event arrives, fall back to the mock run.
- *   3. `forceMock` (e.g. ?demo=1) always replays the mock run, never touching the network.
+ * The browser's EventSource reconnects on its own after transient drops (e.g. a
+ * free-tier backend cold-starting). We surface "connecting" until the first real
+ * event arrives, "live" once it does, and "error" if the connection fails before
+ * any event — while leaving the socket open so it recovers automatically.
  */
-export function useEvents(forceMock: boolean): {
+export function useEvents(): {
   events: LoopEvent[];
   source: FeedSource;
-  replayMock: () => void;
 } {
   const [events, setEvents] = useState<LoopEvent[]>([]);
   const [source, setSource] = useState<FeedSource>("connecting");
-  const timers = useRef<number[]>([]);
   const gotLiveEvent = useRef(false);
 
-  const clearTimers = useCallback(() => {
-    timers.current.forEach((id) => window.clearTimeout(id));
-    timers.current = [];
-  }, []);
-
-  const runMock = useCallback(() => {
-    clearTimers();
-    setEvents([]);
-    setSource("mock");
-    let cumulative = 0;
-    MOCK_SCRIPT.forEach(({ delay, event }) => {
-      cumulative += delay;
-      const id = window.setTimeout(() => {
-        setEvents((prev) => [...prev, event]);
-      }, cumulative);
-      timers.current.push(id);
-    });
-  }, [clearTimers]);
-
   useEffect(() => {
-    if (forceMock) {
-      runMock();
-      return clearTimers;
-    }
-
     let es: EventSource | null = null;
     try {
       es = new EventSource(SSE_URL);
     } catch {
-      runMock();
-      return clearTimers;
+      setSource("error");
+      return;
     }
 
     es.onmessage = (m) => {
@@ -111,28 +55,31 @@ export function useEvents(forceMock: boolean): {
         const parsed = JSON.parse(m.data) as LoopEvent;
         if (!gotLiveEvent.current) {
           gotLiveEvent.current = true;
-          setSource("live");
         }
+        setSource("live");
         setEvents((prev) => [...prev, parsed]);
       } catch {
         // Ignore malformed frames; never let a bad event crash the feed.
       }
     };
 
+    es.onopen = () => {
+      // Connection up; remain "connecting" until the first event proves the
+      // stream is flowing, unless we've already seen live data.
+      if (!gotLiveEvent.current) setSource("connecting");
+    };
+
     es.onerror = () => {
-      // Only fall back if we never received a real event — a live run that
-      // simply ended should not be clobbered by the mock.
-      if (!gotLiveEvent.current) {
-        es?.close();
-        runMock();
-      }
+      // Reflect the failure but keep the socket open so EventSource retries
+      // (the backend may be cold-starting). A live run that simply ended is not
+      // clobbered because gotLiveEvent stays true.
+      if (!gotLiveEvent.current) setSource("error");
     };
 
     return () => {
       es?.close();
-      clearTimers();
     };
-  }, [forceMock, runMock, clearTimers]);
+  }, []);
 
-  return { events, source, replayMock: runMock };
+  return { events, source };
 }

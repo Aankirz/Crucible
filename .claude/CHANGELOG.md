@@ -97,3 +97,14 @@
 - Ran the ADK+Phoenix MCP spike: Gemini agent connected to @arizeai/phoenix-mcp and listed the live Phoenix space (projects: crucible, demo_llama_index, default) — SPIKE OK.
 - Added scripts/phoenix_e2e.py: logs a REAL failing experiment (crucible-world-v1-train) to Phoenix via phoenix_client.log_experiment, then runs live MCP introspection. Experiment logging confirmed in Phoenix Cloud.
 - Live MCP introspection step currently blocked by transient Gemini 503 "high demand" (capacity, not quota/wiring); patient background retry in place.
+
+## 2026-06-12 — Bake real optimization climb into UI replay data
+- Added scripts/bake_replay.py: runs the real crucible.orchestrator.run_loop offline (deterministic, no-API) and captures emitted loop events in order with natural pacing delays.
+- Generated ui/src/replayData.ts (REAL_CLIMB) from the real run: genuine 50%->100% held-out test climb across versions 1-4 with truthful Phoenix-MCP-style hypothesis summaries.
+
+## 2026-06-12 — Real live deploy: bundled-world backend + Render/Vercel wiring
+- Removed UI mock/replay path entirely (no fake data): deleted ui/src/replayData.ts + scripts/bake_replay.py; useEvents.ts now reflects only the live backend (connecting/live/error), API base via VITE_API_URL.
+- Added src/crucible/datasets/world_bundle.py: self-contained real "world" SQLite + human-authored gold SQL (verified every gold query executes). Server falls back to it when no Spider data is configured, so it runs the REAL loop on real data with zero external download.
+- server/app.py: bundled-world mode (build DB at startup, world train/test splits, no-schema v1 for an honest climb), added /healthz.
+- Dockerfile: Python 3.12 + Node, pre-installs @arizeai/phoenix-mcp, binds $PORT (Render).
+- render.yaml blueprint + DEPLOY.md runbook (Vertex/AI-Studio + Render + Vercel). 65 tests green.
