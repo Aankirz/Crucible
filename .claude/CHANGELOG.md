@@ -108,3 +108,9 @@
 - server/app.py: bundled-world mode (build DB at startup, world train/test splits, no-schema v1 for an honest climb), added /healthz.
 - Dockerfile: Python 3.12 + Node, pre-installs @arizeai/phoenix-mcp, binds $PORT (Render).
 - render.yaml blueprint + DEPLOY.md runbook (Vertex/AI-Studio + Render + Vercel). 65 tests green.
+
+## 2026-06-12 — Single-service deploy (FastAPI serves UI) + free-tier hardening
+- FastAPI now serves the built Vite UI at "/" when CRUCIBLE_UI_DIST is set (same-origin, no Vercel/CORS). Smoke-tested: /healthz, /, /assets all 200.
+- Dockerfile is now multi-stage: stage 1 builds the UI (VITE_API_URL="" -> same-origin), stage 2 runs FastAPI serving both. One Render service = whole app.
+- models.py: multi-key rotation via GOOGLE_API_KEYS (pool free-tier 20/day across projects; rotate on 429/503).
+- render.yaml: GEMINI_MODEL -> gemini-3-flash-preview (free-tier safe), GOOGLE_API_KEYS option. 65 tests green.

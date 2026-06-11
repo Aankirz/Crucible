@@ -1,8 +1,20 @@
-# Crucible Mission Control backend — container image (Render / any host).
+# Crucible Mission Control — single-service image (API + UI) for Render / any host.
 #
-# Node.js is required because the Phoenix MCP server is launched at runtime via
-# `npx @arizeai/phoenix-mcp` (agent-initiated introspection). `uv` manages the
-# Python environment and runs the FastAPI app under uvicorn.
+# Stage 1 builds the Vite UI; stage 2 runs FastAPI (which serves both the API and
+# the built UI at the same origin). Node.js is also needed at runtime because the
+# Phoenix MCP server is launched via `npx @arizeai/phoenix-mcp`.
+
+# --- Stage 1: build the React/Vite UI ----------------------------------------
+FROM node:22-slim AS ui-build
+WORKDIR /ui
+COPY ui/package.json ui/package-lock.json ./
+RUN npm ci
+COPY ui/ ./
+# Empty API base -> the UI calls the same origin that serves it (/events, /run).
+ENV VITE_API_URL=""
+RUN npm run build
+
+# --- Stage 2: Python runtime (API + static UI) -------------------------------
 FROM python:3.12-slim
 
 # Node.js + npm provide `npx` for the Phoenix MCP server.
@@ -26,6 +38,10 @@ RUN uv sync
 
 # Copy the application source.
 COPY . .
+
+# Bring in the built UI from stage 1 and tell the app where to serve it from.
+COPY --from=ui-build /ui/dist ./ui_dist
+ENV CRUCIBLE_UI_DIST=/app/ui_dist
 
 ENV PYTHONUNBUFFERED=1
 

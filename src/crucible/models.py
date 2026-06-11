@@ -45,15 +45,30 @@ def _truthy(value: str | None) -> bool:
     return (value or "").strip().lower() in ("1", "true", "yes", "on")
 
 
-def _build_client() -> "genai.Client":
-    """Build a genai client in one of two modes:
+def _api_keys() -> list[str]:
+    """Resolve the AI-Studio API key(s), supporting free-tier quota pooling.
 
-    * **Vertex AI** (when `GOOGLE_GENAI_USE_VERTEXAI` is truthy): authenticates via
-      Application Default Credentials (`gcloud auth application-default login`) and
-      bills the Cloud project — so Google Cloud credits ($300 trial / lab credits)
-      are consumed instead of the AI-Studio free tier. Requires `GOOGLE_CLOUD_PROJECT`
-      and `GOOGLE_CLOUD_LOCATION` (e.g. `us-central1`).
-    * **AI Studio** (default): authenticates with the `GOOGLE_API_KEY` API key.
+    `GOOGLE_API_KEYS` (comma-separated) lets you spread load across several free
+    projects — each carries its own daily quota, so N keys ≈ N× the free headroom.
+    Falls back to a single `GOOGLE_API_KEY`.
+    """
+    multi = os.environ.get("GOOGLE_API_KEYS")
+    if multi:
+        keys = [k.strip() for k in multi.split(",") if k.strip()]
+        if keys:
+            return keys
+    single = os.environ.get("GOOGLE_API_KEY")
+    return [single] if single else []
+
+
+def _build_clients() -> list["genai.Client"]:
+    """Build one or more genai clients.
+
+    * **Vertex AI** (when `GOOGLE_GENAI_USE_VERTEXAI` is truthy): a single client
+      authenticated via Application Default Credentials, billing the Cloud project.
+      Requires `GOOGLE_CLOUD_PROJECT` and `GOOGLE_CLOUD_LOCATION`.
+    * **AI Studio** (default): one client per `GOOGLE_API_KEY(S)`. Multiple keys are
+      rotated on rate-limit exhaustion to pool free-tier quota.
     """
     if _truthy(os.environ.get("GOOGLE_GENAI_USE_VERTEXAI")):
         project = os.environ.get("GOOGLE_CLOUD_PROJECT")
@@ -63,15 +78,15 @@ def _build_client() -> "genai.Client":
                 "Vertex mode needs GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION "
                 "(and `gcloud auth application-default login`)."
             )
-        return genai.Client(vertexai=True, project=project, location=location)
+        return [genai.Client(vertexai=True, project=project, location=location)]
 
-    api_key = os.environ.get("GOOGLE_API_KEY")
-    if not api_key:
+    keys = _api_keys()
+    if not keys:
         raise RuntimeError(
-            "GOOGLE_API_KEY is not set; required for AI-Studio mode. "
-            "(Or set GOOGLE_GENAI_USE_VERTEXAI=true to use Vertex AI + Cloud credits.)"
+            "GOOGLE_API_KEY (or GOOGLE_API_KEYS) is not set; required for AI-Studio "
+            "mode. (Or set GOOGLE_GENAI_USE_VERTEXAI=true to use Vertex AI.)"
         )
-    return genai.Client(api_key=api_key)
+    return [genai.Client(api_key=k) for k in keys]
 
 
 def gemini_model(model_name: str | None = None) -> ModelFn:
@@ -93,17 +108,21 @@ def gemini_model(model_name: str | None = None) -> ModelFn:
     """
     resolved_model = model_name or os.environ.get("GEMINI_MODEL") or DEFAULT_MODEL
 
-    client = _build_client()
+    clients = _build_clients()
     config = types.GenerateContentConfig(temperature=SCORING_TEMPERATURE)
+    # Round-robin cursor across keys; advanced on each retryable failure so an
+    # exhausted/overloaded key is skipped rather than waited on when others exist.
+    cursor = {"i": 0}
 
     def call(prompt: str) -> str:
         """Send `prompt` to Gemini and return the raw response text.
 
-        Retries transient failures with backoff so the multi-call loop pauses
-        rather than crashes: 429 (rate limit, honoring the server's suggested
-        delay) and 503 (model temporarily overloaded).
+        On a transient failure (429 rate limit / 503 overloaded) it rotates to the
+        next API key when more than one is configured, and otherwise backs off —
+        so the multi-call loop survives throttling instead of crashing.
         """
         for attempt in range(MAX_RETRIES):
+            client = clients[cursor["i"] % len(clients)]
             try:
                 response = client.models.generate_content(
                     model=resolved_model,
@@ -115,7 +134,10 @@ def gemini_model(model_name: str | None = None) -> ModelFn:
                 if getattr(e, "code", None) not in RETRYABLE_CODES \
                         or attempt == MAX_RETRIES - 1:
                     raise
-                time.sleep(_retry_delay_seconds(e, attempt))
+                cursor["i"] += 1  # try the next key first
+                # Only pay the backoff once we've cycled through every key.
+                if len(clients) == 1 or (attempt + 1) % len(clients) == 0:
+                    time.sleep(_retry_delay_seconds(e, attempt))
         return ""
 
     return call

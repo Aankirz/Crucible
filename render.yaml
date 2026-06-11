@@ -16,18 +16,16 @@ services:
     envVars:
       # --- Model ---------------------------------------------------------------
       - key: GEMINI_MODEL
-        # With billing enabled you can use the stronger gemini-3-pro-preview.
-        value: gemini-3-pro-preview
+        # Free-tier-safe Gemini 3 id. gemini-3-pro-preview needs billing.
+        value: gemini-3-flash-preview
 
-      # --- Gemini credentials (set ONE path in the Render dashboard) -----------
-      # Path A (simplest on a server): a billing-enabled AI Studio API key.
+      # --- Gemini credentials (set in the Render dashboard) --------------------
+      # One free AI Studio key, OR several comma-separated keys from different
+      # free projects via GOOGLE_API_KEYS to pool the 20/day quota (rotated on 429).
       - key: GOOGLE_API_KEY
         sync: false
-      # Path B (Vertex AI): uncomment these in the dashboard instead of GOOGLE_API_KEY.
-      #   GOOGLE_GENAI_USE_VERTEXAI = true
-      #   GOOGLE_CLOUD_PROJECT      = <your-project-id>
-      #   GOOGLE_CLOUD_LOCATION     = us-central1
-      #   GOOGLE_APPLICATION_CREDENTIALS = /etc/secrets/sa.json   (upload as a Secret File)
+      - key: GOOGLE_API_KEYS
+        sync: false
 
       # --- Arize Phoenix -------------------------------------------------------
       - key: PHOENIX_PROJECT_NAME

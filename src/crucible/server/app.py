@@ -269,3 +269,15 @@ def _run_loop_job(db_id: str) -> None:
         bus.publish({"type": "error", "message": str(exc)})
     finally:
         _run_state["running"] = False
+
+
+# --- Static UI (single-service deploy) ---------------------------------------
+# When CRUCIBLE_UI_DIST points at a built Vite bundle, serve it at "/" so one
+# process hosts both the API and the Mission Control UI (same origin -> no CORS,
+# no separate frontend deploy). Mounted LAST so the API routes above win; html=True
+# serves index.html for "/" and any client-side path.
+_ui_dist = os.environ.get("CRUCIBLE_UI_DIST")
+if _ui_dist and os.path.isdir(_ui_dist):
+    from fastapi.staticfiles import StaticFiles
+
+    app.mount("/", StaticFiles(directory=_ui_dist, html=True), name="ui")

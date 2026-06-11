@@ -16,9 +16,14 @@ export type LoopEvent =
  * for the deployed UI; falls back to the local dev server otherwise. No mock or
  * replay path — the UI reflects only the real live backend.
  */
-export const API_BASE: string =
-  (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ??
-  "http://localhost:8000";
+// VITE_API_URL unset -> local dev backend. Set to "" for a same-origin
+// single-service deploy (FastAPI serves this bundle), or to the backend URL when
+// the UI is hosted separately.
+export const API_BASE: string = (() => {
+  const v = import.meta.env.VITE_API_URL as string | undefined;
+  if (v === undefined) return "http://localhost:8000";
+  return v.replace(/\/$/, "");
+})();
 
 const SSE_URL = `${API_BASE}/events`;
 
