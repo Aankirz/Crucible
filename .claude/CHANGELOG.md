@@ -129,3 +129,7 @@
 
 ## 2026-06-12 — Demo run logs REAL Phoenix experiments (async)
 - _async_log_experiment: demo mode now logs genuine EvalResults to Phoenix in a background thread, so clicking Run on the hosted app populates the Arize Phoenix space with real experiments while the UI climb stays snappy (non-blocking, best-effort). 70 tests green.
+
+## 2026-06-12 — VERIFIED LIVE END-TO-END (Vertex AI + Phoenix + MCP)
+- Switched to Vertex AI (gemini-3-flash-preview, location=global) drawing the Google Cloud $300 trial credits — the AI-Studio prepay key could not use them. ADC re-authed as aankir101 (project gen-lang-client-0589427141, billing linked, Vertex API enabled).
+- Verified live: real Gemini 3 climb; and the full Arize money shot — real flow -> real Phoenix experiment -> Gemini agent reads its OWN failures via the Phoenix MCP server and correctly diagnoses JOIN/GROUP BY/ORDER BY omissions (execution_match=0.4 matched). PROOF.md added.
