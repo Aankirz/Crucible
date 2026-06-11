@@ -98,6 +98,37 @@ def read_schema(db_path: str) -> str:
     return ddl
 
 
+def _materialize_sa_json() -> None:
+    """If GOOGLE_SA_JSON holds a service-account key, write it to a file.
+
+    Lets a host (e.g. Render) supply Vertex credentials as a single env var
+    instead of a secret file: we persist the JSON to a temp path and point
+    GOOGLE_APPLICATION_CREDENTIALS at it so google-auth picks it up. A real file
+    already named by GOOGLE_APPLICATION_CREDENTIALS always wins.
+    """
+    existing = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+    if existing and os.path.exists(existing):
+        return
+    raw = os.environ.get("GOOGLE_SA_JSON")
+    if not raw or not raw.strip():
+        return
+    try:
+        import json as _json
+        import tempfile
+
+        _json.loads(raw)  # validate before writing
+        path = os.path.join(tempfile.gettempdir(), "crucible_sa.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(raw)
+        os.chmod(path, 0o600)
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = path
+    except Exception as exc:  # noqa: BLE001 - bad creds must not crash boot.
+        print(f"[crucible] GOOGLE_SA_JSON not applied: {exc}")
+
+
+# Apply at import so credentials are in place before any model client is built.
+_materialize_sa_json()
+
 app = FastAPI(title="Crucible Mission Control")
 
 # Permissive CORS: the Vite dev server runs on a different origin/port.

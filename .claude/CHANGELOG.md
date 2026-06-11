@@ -149,3 +149,6 @@
 - Backend: 3 new bundled DBs (concert_singer, university, ecommerce; 39 gold SQL all execute) + catalog.py; GET /databases, GET /schema; catalog-aware /run (world=demo instant, live DBs=real Gemini, CRUCIBLE_MAX_ITERS bound). Richer SSE events: status/item/phoenix/run_complete via optional on_item callback threaded through evaluate+run_loop (backward compatible). 100 tests pass.
 - Frontend: landing hero + CTAs + loop diagram, How-it-works, live Console (DB dropdown w/ demo|live badge, schema viewer, step-by-step ActivityLog showing each generated SQL ✓/✗, Phoenix panel with experiment links, leaderboard, hypothesis), Bring-your-own-DB guide, footer. Build green.
 - Verified integration: /databases (4), /schema, and item/status/phoenix events stream end-to-end.
+
+## 2026-06-12 — Vertex creds via GOOGLE_SA_JSON env var (Render-friendly)
+- app.py materializes a service-account key from GOOGLE_SA_JSON into a temp file at import and points GOOGLE_APPLICATION_CREDENTIALS at it (a real GOOGLE_APPLICATION_CREDENTIALS file still wins). Verified: SA -> Vertex gemini-3-flash-preview returns live SQL; 100 tests pass. Lets the hosted live DBs draw the $300 trial via Vertex without secret-file UI.
