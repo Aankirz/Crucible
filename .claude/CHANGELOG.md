@@ -90,3 +90,10 @@
 
 ## 2026-06-09 — Vertex AI mode (use Cloud credits)
 - models.py: gemini_model() now supports two auth modes via `_build_client`: Vertex AI (GOOGLE_GENAI_USE_VERTEXAI=true + project/location + ADC) to consume Google Cloud credits with no daily cap, or AI-Studio API key (default). +2 tests (65 total). Documented both modes in .env.example.
+
+## 2026-06-12 — Live Phoenix Cloud + MCP introspection wired
+- Wired real Phoenix Cloud creds into .env (gitignored): PHOENIX_API_KEY + space endpoint https://app.phoenix.arize.com/s/sahuankit453.
+- Verified tracing end-to-end: init_tracing() emits spans that land in the Phoenix `crucible` project (confirmed via spans query).
+- Ran the ADK+Phoenix MCP spike: Gemini agent connected to @arizeai/phoenix-mcp and listed the live Phoenix space (projects: crucible, demo_llama_index, default) — SPIKE OK.
+- Added scripts/phoenix_e2e.py: logs a REAL failing experiment (crucible-world-v1-train) to Phoenix via phoenix_client.log_experiment, then runs live MCP introspection. Experiment logging confirmed in Phoenix Cloud.
+- Live MCP introspection step currently blocked by transient Gemini 503 "high demand" (capacity, not quota/wiring); patient background retry in place.
